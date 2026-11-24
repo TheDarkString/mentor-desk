@@ -238,7 +238,34 @@ label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--in
 
 .fab{position:fixed;right:calc(18px + env(safe-area-inset-right,0px));bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:7;border:none;background:var(--accent);color:var(--accent-ink);border-radius:16px;padding:14px 18px;font-weight:600;font-size:15px;display:flex;gap:8px;align-items:center;box-shadow:0 8px 24px rgb(0 0 0/.22);cursor:pointer}
 .fab svg{width:18px;height:18px}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:20;box-shadow:var(--shadow);max-width:calc(100vw - 32px)}
+.lockscr{position:fixed;inset:0;z-index:40;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px;
+  padding:calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px));transition:opacity .28s ease,transform .28s ease;user-select:none;-webkit-user-select:none}
+.lockscr.out{opacity:0;transform:scale(1.04)}
+.lk-top{display:flex;flex-direction:column;align-items:center;gap:14px}
+.lk-title{font-family:var(--font-head);font-size:21px;font-weight:700;letter-spacing:-.01em}
+.lk-dots{display:flex;gap:18px;height:22px;align-items:center}
+.lk-dots i{width:15px;height:15px;border-radius:50%;border:2px solid var(--ink);background:transparent;transition:background .14s,border-color .2s}
+.lk-dots i.on{background:var(--ink)}
+.lk-dots i.pop{animation:lk-pop .24s cubic-bezier(.3,1.6,.5,1)}
+.lk-dots[data-state="bad"]{animation:lk-shake .42s}
+.lk-dots[data-state="bad"] i{border-color:var(--bad);background:var(--bad)}
+.lk-dots[data-state="ok"] i{border-color:var(--good);background:var(--good);animation:lk-pop .3s}
+@keyframes lk-pop{0%{transform:scale(.4)}60%{transform:scale(1.3)}100%{transform:scale(1)}}
+@keyframes lk-shake{0%,100%{transform:translateX(0)}18%{transform:translateX(-12px)}36%{transform:translateX(10px)}54%{transform:translateX(-7px)}72%{transform:translateX(4px)}}
+.lk-msg{min-height:18px;font-size:13.5px;color:var(--bad);font-weight:500}
+.lk-pad{display:grid;grid-template-columns:repeat(3,78px);gap:16px 28px}
+.lk-key{width:78px;height:78px;border-radius:50%;border:none;background:var(--surface-2);color:var(--ink);font-family:var(--font-head);font-size:31px;font-weight:600;
+  cursor:pointer;display:grid;place-items:center;padding:0;transition:transform .09s ease,background .15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.lk-key:hover{background:var(--line)}
+.lk-key:active,.lk-key.hit{transform:scale(.9);background:var(--line)}
+.lk-key.lk-sm{background:transparent;font-family:var(--font-ui);font-size:14px;font-weight:500;color:var(--ink-2)}
+.lk-key.lk-sm:hover,.lk-key.lk-sm:active{background:var(--surface-2)}
+.lk-key svg{width:28px;height:28px}
+.lk-key[disabled]{opacity:.3;cursor:not-allowed}
+.lk-forgot{max-width:300px;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center}
+@media (max-height:660px){.lockscr{gap:18px}.lk-pad{grid-template-columns:repeat(3,66px);gap:10px 24px}.lk-key{width:66px;height:66px;font-size:27px}}
+@media (prefers-reduced-motion:reduce){.lk-dots i.pop,.lk-dots[data-state]{animation:none}.lockscr{transition:none}}
+.toast{z-index:50;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:20;box-shadow:var(--shadow);max-width:calc(100vw - 32px)}
 .loading{padding:60px 0;text-align:center;color:var(--ink-2)}
 @media (prefers-reduced-motion:no-preference){.item,.card{transition:background .15s,border-color .15s}}
 .bnav{display:none}
@@ -425,25 +452,54 @@ async function hashPin(pin,salt){
   try{if(window.crypto&&crypto.subtle){const b=await crypto.subtle.digest('SHA-256',data);return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('')}}catch(e){}
   let h=2166136261;for(const c of data){h^=c;h=Math.imul(h,16777619)}return 'f'+(h>>>0).toString(16);
 }
-function lockNow(){if(!pinRec())return;locked=true;closeDlg();render();setTimeout(()=>{const i=$('#pin-in');if(i)i.focus()},50)}
+let pinBuf='';
+function lockNow(){if(!pinRec())return;locked=true;pinBuf='';closeDlg();render()}
+const BKSP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7z"/><path d="M12.5 9.5l5 5M17.5 9.5l-5 5"/></svg>';
 function lockScreen(){
-  const wait=Math.max(0,Math.ceil((pinWaitUntil-Date.now())/1000));
-  return `<div class="panel stack" style="max-width:360px;margin:48px auto;padding:28px;align-items:center;text-align:center;gap:14px">
-    <svg width="56" height="56" viewBox="0 0 100 100" aria-hidden="true"><rect x=".5" y=".5" width="99" height="99" rx="24" style="fill:#0a0a0a;stroke:var(--line)"/><path d="M20 52C28 34 42 34 50 50S72 66 80 48" style="fill:none;stroke:#fff;stroke-width:9;stroke-linecap:round"/></svg>
-    <h1 style="font-size:22px">Mentor Desk is locked</h1>
-    <input id="pin-in" class="in mono" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="8" placeholder="PIN" aria-label="PIN" style="text-align:center;font-size:22px;letter-spacing:.3em;max-width:200px" ${wait?'disabled':''}>
-    <div id="pin-msg" class="sub" style="min-height:20px;color:var(--bad)">${wait?'Too many tries. Wait '+wait+' s.':''}</div>
-    <button class="btn primary" data-act="unlock" style="min-width:160px;justify-content:center" ${wait?'disabled':''}>Unlock</button>
-    <button class="btn ghost sm" data-act="forgot-pin">Forgot PIN?</button>
-    <div id="forgot" hidden class="stack" style="gap:8px"><div class="sub">The only way back in is to erase this device's Mentor Desk data, then restore a backup or your setup file.</div><button class="btn danger sm" data-act="erase-all">Erase data on this device</button></div></div>`;
+  const rec=pinRec()||{},wait=Math.max(0,Math.ceil((pinWaitUntil-Date.now())/1000));
+  const key=n=>`<button type="button" class="lk-key" data-act="pin-key" data-k="${n}" aria-label="${n}" ${wait?'disabled':''}>${n}</button>`;
+  return `<div class="lockscr" id="lockscr" role="dialog" aria-label="Enter PIN">
+    <div class="lk-top">
+      <svg viewBox="0 0 100 100" width="58" height="58" aria-hidden="true"><rect x=".5" y=".5" width="99" height="99" rx="24" style="fill:#0a0a0a;stroke:var(--line)"/><path d="M20 52C28 34 42 34 50 50S72 66 80 48" style="fill:none;stroke:#fff;stroke-width:9;stroke-linecap:round"/></svg>
+      <div class="lk-title">Enter PIN</div>
+      <div class="lk-dots" id="lk-dots" aria-live="polite">${dotsHtml('')}</div>
+      <div class="lk-msg" id="pin-msg">${wait?'Too many tries. Wait '+wait+' s':''}</div>
+    </div>
+    <div class="lk-pad">${[1,2,3,4,5,6,7,8,9].map(key).join('')}
+      <button type="button" class="lk-key lk-sm" data-act="forgot-pin">Forgot?</button>${key(0)}
+      <button type="button" class="lk-key lk-sm" data-act="pin-del" aria-label="Delete">${BKSP}</button></div>
+    ${rec.len?'':'<button type="button" class="btn primary" data-act="unlock" style="min-width:180px;justify-content:center">Unlock</button>'}
+    <div class="lk-forgot" id="forgot" hidden><div class="sub">The only way back in is to erase this device's Mentor Desk data, then import a snapshot or your setup file.</div><button type="button" class="btn danger sm" data-act="erase-all">Erase data on this device</button></div>
+  </div>`;
 }
+function dotsHtml(state){const rec=pinRec()||{},n=rec.len||Math.max(4,pinBuf.length);return Array.from({length:n},(_,i)=>`<i class="${i<pinBuf.length?'on':''}${state==='add'&&i===pinBuf.length-1?' pop':''}"></i>`).join('')}
+function paintDots(state){const el=$('#lk-dots');if(!el)return;el.innerHTML=dotsHtml(state);el.dataset.state=state==='bad'||state==='ok'?state:'';if(state!=='bad'){const m=$('#pin-msg');if(m&&Date.now()>=pinWaitUntil)m.textContent=''}}
+function buzz(ms){try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}}
+let pinBusy=false;
+async function pinKey(k){
+  const rec=pinRec();if(!rec||pinBusy||Date.now()<pinWaitUntil||pinBuf.length>=8)return;
+  pinBuf+=k;paintDots('add');buzz(6);
+  if(rec.len){if(pinBuf.length===rec.len)setTimeout(tryUnlock,140);return}
+  if(pinBuf.length>=4&&await hashPin(pinBuf,rec.salt)===rec.hash){tryUnlock();return}
+  if(pinBuf.length===8)setTimeout(tryUnlock,140);
+}
+function pinDel(){if(pinBusy||!pinBuf)return;pinBuf=pinBuf.slice(0,-1);paintDots('');buzz(4)}
 async function tryUnlock(){
-  const i=$('#pin-in'),rec=pinRec();if(!i||!rec)return;
-  if(Date.now()<pinWaitUntil)return;
-  if(await hashPin(i.value,rec.salt)===rec.hash){locked=false;pinFails=0;render();return}
-  pinFails++;i.value='';
-  if(pinFails>=5){pinWaitUntil=Date.now()+30000;pinFails=0;render();setTimeout(render,30500);return}
-  $('#pin-msg').textContent='Wrong PIN';i.focus();
+  const rec=pinRec();if(!rec||pinBusy||Date.now()<pinWaitUntil)return;
+  if(!pinBuf){const m=$('#pin-msg');if(m)m.textContent='Type your PIN';return}
+  pinBusy=true;
+  if(await hashPin(pinBuf,rec.salt)===rec.hash){
+    if(!rec.len){try{localStorage.setItem(PIN_KEY,JSON.stringify(Object.assign({},rec,{len:pinBuf.length})))}catch(e){}}
+    paintDots('ok');buzz(15);pinFails=0;
+    setTimeout(()=>{const sc=$('#lockscr');if(sc)sc.classList.add('out')},160);
+    setTimeout(()=>{locked=false;pinBuf='';pinBusy=false;render()},430);
+    return;
+  }
+  pinFails++;paintDots('bad');buzz([60,40,60]);
+  const m=$('#pin-msg');if(m)m.textContent='Wrong PIN';
+  setTimeout(()=>{pinBuf='';pinBusy=false;
+    if(pinFails>=5){pinWaitUntil=Date.now()+30000;pinFails=0;render();const t=setInterval(()=>{if(!locked||Date.now()>=pinWaitUntil){clearInterval(t)}if(locked)render()},1000);return}
+    paintDots('')},480);
 }
 const NOTIFIED=new Set();
 function boot(){
@@ -458,8 +514,8 @@ function boot(){
     if(pinRec()&&hiddenAt&&Date.now()-hiddenAt>5*60*1000){lockNow();return}
     if(S&&!locked){render();checkAlerts();}
   });
-  document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target&&e.target.id==='pin-in'){e.preventDefault();tryUnlock()}});
-  locked=!!pinRec();
+  document.addEventListener('keydown',e=>{if(!locked)return;if(/^[0-9]$/.test(e.key)){e.preventDefault();pinKey(e.key);const b=document.querySelector('.lk-key[data-k="'+e.key+'"]');if(b){b.classList.add('hit');setTimeout(()=>b.classList.remove('hit'),110)}}else if(e.key==='Backspace'){e.preventDefault();pinDel()}else if(e.key==='Enter'){e.preventDefault();tryUnlock()}});
+  locked=!!pinRec();pinBuf='';
   setInterval(tick,30000);
   store.mode='local';loadLocal();syncIdle();render();renderInstall();
   if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)){navigator.serviceWorker.register('sw.js').then(r=>{swReg=r}).catch(()=>{});}
@@ -1304,14 +1360,16 @@ const ACT={
     catch(e){if(e&&e.name!=='AbortError')toast('Sharing failed. Use Export snapshot instead.')}},
   'ics':()=>{const r=buildIcs();if(!r.count){toast('No reminders to export yet');return}if(downloadFile('mentor-reminders.ics',r.text,'text/calendar'))toast(r.count+' repeating reminders exported')},
   'unlock':()=>tryUnlock(),
-  'forgot-pin':()=>{const f=$('#forgot');if(f)f.hidden=false},
+  'pin-key':d=>pinKey(d.k),
+  'pin-del':()=>pinDel(),
+  'forgot-pin':()=>{const f=$('#forgot');if(f)f.hidden=!f.hidden},
   'erase-all':(d,b)=>armDelete(b,()=>{try{localStorage.removeItem(LS_KEY);localStorage.removeItem(PIN_KEY)}catch(e){}location.reload()}),
   'lock-now':()=>lockNow(),
   'remove-pin':(d,b)=>armDelete(b,()=>{try{localStorage.removeItem(PIN_KEY)}catch(e){}render();toast('PIN removed')}),
   'set-pin':async()=>{const a=($('#pin-new')||{}).value||'',b=($('#pin-new2')||{}).value||'';
     if(!/^\d{4,8}$/.test(a)){toast('Use 4 to 8 digits');return}if(a!==b){toast('The two PINs don’t match');return}
     const salt=Math.random().toString(36).slice(2,12);
-    try{localStorage.setItem(PIN_KEY,JSON.stringify({salt,hash:await hashPin(a,salt)}));render();toast('PIN set. Write it down somewhere safe.')}catch(e){toast('Couldn’t save the PIN on this device')}},
+    try{localStorage.setItem(PIN_KEY,JSON.stringify({salt,len:a.length,hash:await hashPin(a,salt)}));render();toast('PIN set. Write it down somewhere safe.')}catch(e){toast('Couldn’t save the PIN on this device')}},
   'install':async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){}installEvt=null;renderInstall();},
   'notif':async()=>{try{const p=await Notification.requestPermission();toast(p==='granted'?'Alerts on':'Alerts not allowed');}catch(e){toast('This browser can’t show alerts')}render()},
   'notif-test':()=>{const o={body:'Alerts work. You will get one at each task time while the app is open or recently used.',icon:'icon-192.png',tag:'test'};try{if(swReg&&swReg.showNotification)swReg.showNotification('Mentor Desk',o);else new Notification('Mentor Desk',o)}catch(e){toast('Couldn’t show the alert')}},
