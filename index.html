@@ -678,7 +678,7 @@ function itemRow(i,opts={}){
       <span class="clsdot">${ICON.cls}</span>
       <div class="when">${opts.showDate?esc(fmtEn(i.date))+'<br>':''}${fromMin(i.min)}</div>
       <div class="body"><div class="t">${esc(i.title)} · ${fromMin(i.min)}–${fromMin(i.end)}</div>
-        <div class="meta"><span class="chip">${esc(MODES[i.mode]||i.mode)}</span>${i.cancelled?'<span class="chip bad">Cancelled</span>':''}${(()=>{const ln=c&&c.kind==='main'&&!i.cancelled?lessonAt(i.classId,i.classDate):null;return ln?`<span>Gün ${ln} · ${esc(lessonTitle(ln))}</span>`:''})()}</div></div>
+        <div class="meta">${c&&c.kind==='mentor'?'<span class="chip ok">You teach</span>':'<span class="chip">Instructor</span>'}<span class="chip">${esc(MODES[i.mode]||i.mode)}</span>${i.cancelled?'<span class="chip bad">Cancelled</span>':''}${(()=>{const ln=c&&c.kind==='main'&&!i.cancelled?lessonAt(i.classId,i.classDate):null;return ln?`<span>Gün ${ln} · ${esc(lessonTitle(ln))}</span>`:''})()}</div></div>
       <div class="acts"><button class="btn sm" data-act="item" data-key="${esc(i.key)}">Manage</button></div></div>`;
   }
   const over=!i.status&&isPast(i);
@@ -705,7 +705,7 @@ function listHtml(items,opts){return items.length?`<div class="list">${items.map
 function banners(){
   const out=[],c=cfg(),t=todayYmd();
   if(!c.startConfirmed){
-    if(SYL.lessons.length&&mainClasses().length)out.push(`<div class="banner"><div class="grow"><b>How many lessons have you taught so far?</b> Months, the mentor hour and month-2 reminders follow the lessons actually taught, not the calendar.</div>
+    if(SYL.lessons.length&&mainClasses().length)out.push(`<div class="banner"><div class="grow"><b>How many lessons has the instructor covered so far?</b> Months, your mentor hour and month-2 reminders follow the instructor’s lessons, not the calendar.</div>
     <input type="number" min="0" max="${SYL.lessons.length}" class="in mono" style="width:80px" id="bn-taught" value="${taughtCount()}"><button class="btn primary sm" data-act="confirm-taught">Save</button></div>`);
     else out.push(`<div class="banner"><div class="grow"><b>When did the course start?</b> Months are counted from this date.</div>
     <input type="date" class="in" style="width:auto" id="bn-start" value="${esc(c.courseStart)}"><button class="btn primary sm" data-act="confirm-start">Save</button></div>`);
@@ -824,7 +824,7 @@ function vPlan(){
     <section class="section"><header><h2>Classes</h2><button class="btn sm" data-act="new-class">${ICON.plus}Add class</button></header>
       <div class="cards">${classes().map(c=>`<div class="card cat-${c.kind==='mentor'?'mentor':'class'}"><div class="row" style="justify-content:space-between"><h3>${esc(c.name)}</h3><span class="chip cat"><span class="d"></span>${esc(MODES[c.mode]||c.mode)}</span></div>
         <div class="mono">${c.day&&c.start?esc(EN_DAYS[c.day])+' '+esc(c.start)+'–'+esc(c.end||''):'<span class="chip warn">Time not set</span>'}</div>
-        <div class="sub">${esc(PHASES[c.phase]||'')}${c.active?'':' · paused'}</div><div><button class="btn sm" data-act="edit-class" data-id="${esc(c.id)}">Edit</button></div></div>`).join('')}</div></section>
+        <div class="sub">${c.kind==='mentor'?'You teach':'Taught by the instructor'} · ${esc(PHASES[c.phase]||'')}${c.active?'':' · paused'}</div><div><button class="btn sm" data-act="edit-class" data-id="${esc(c.id)}">Edit</button></div></div>`).join('')}</div></section>
     ${rows}
     <div class="sub">Tip: the calendar icon on each routine adds it to Google Calendar as a repeating event, so your phone notifies you.</div></div>`;
 }
@@ -874,7 +874,7 @@ function vSyllabus(){
   const nl=nextLesson(),done=taughtCount(),sched=lessonSchedule();
   if(!SYL.lessons.length)return `<div class="stack" style="gap:18px"><h1>Syllabus</h1><div class="empty">No syllabus loaded. It comes with your setup file (Setup → Your data → Restore).</div></div>`;
   return `<div class="stack" style="gap:18px">
-    <div class="row" style="justify-content:space-between"><div><h1>Syllabus</h1><div class="sub">Dates follow your class schedule from the start date. A cancelled class pushes every later lesson to the next class. Homework and struggle-poll messages use the latest lessons taught.</div></div><span class="chip ok mono">${done}/${SYL.lessons.length} taught</span></div>
+    <div class="row" style="justify-content:space-between"><div><h1>Syllabus</h1><div class="sub">Dates follow the instructor’s class schedule from the start date. A cancelled class pushes every later lesson to the next class. Your homework and struggle-poll messages use the latest lessons covered.</div></div><span class="chip ok mono">${done}/${SYL.lessons.length} covered</span></div>
     ${SYL.months.map(m=>{const ls=SYL.lessons.slice((m.m-1)*LPM,m.m*LPM);const first=sched[(m.m-1)*LPM];const c=ls.filter(l=>{const x=sched[l[0]-1];return x&&isTaught(x)}).length;return `<section class="section"><header><h2>Month ${m.m} · ${esc(m.title)}</h2><span class="sub mono">${first?'from '+esc(fmtEn(first.date))+' · ':''}${c}/${ls.length}</span></header>
       <div class="list">${ls.map(([n,tt])=>`${(()=>{const x=sched[n-1],tg=x&&isTaught(x);return `<div class="lesson ${tg?'covered':''} ${n===nl?'nextup':''}"><span class="mono" style="display:grid;place-items:center;width:24px;height:24px;border-radius:6px;font-size:12px;${tg?'background:var(--good);color:#fff':'background:var(--surface-2);color:var(--ink-2)'}">${n}</span><span class="lt">${esc(tt)}${n===nl?' <span class="chip ok">next</span>':''}<br><span class="sub mono">${x?esc(fmtEn(x.date))+(x.classId&&classById(x.classId)?' · '+esc(classById(x.classId).name):''):'not scheduled'}</span></span><span class="row" style="gap:4px"><button class="btn sm ghost" data-act="topic-from-lesson" data-n="${n}" title="Add as struggle topic">+ struggle</button></span></div>`})()}`).join('')}</div>
       <details><summary class="sub" style="cursor:pointer">Practical tasks this month</summary><ul class="sub">${m.practice.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></details></section>`}).join('')}</div>`;
@@ -907,8 +907,8 @@ function vSetup(){
         <div class="sub">The file is built from your current plan${mentorSet?'':' (mentor-hour reminders are added once you set its time)'}. If you change class times later, delete the Mentor calendar, create it again and import a fresh file. For one routine, use the calendar icon next to it in <a href="#plan">Weekly plan</a>.</div></div></section>
     <section class="panel stack"><h2>Course</h2>
       <div class="sub">Change any of these and everything re-syncs: months, mentor-hour start, reminders and deadlines.</div><div class="frow">
-      <label class="f">Start date (first class)<input type="date" value="${esc(c.courseStart)}" data-change="cfg" data-k="courseStart"></label>
-      ${SYL.lessons.length&&mainClasses().length?`<label class="f">Lessons taught so far<input type="number" min="0" max="${SYL.lessons.length}" value="${taughtCount()}" data-change="taught"></label>`:''}
+      <label class="f">Start date (instructor’s first lesson)<input type="date" value="${esc(c.courseStart)}" data-change="cfg" data-k="courseStart"></label>
+      ${SYL.lessons.length&&mainClasses().length?`<label class="f">Lessons covered by the instructor<input type="number" min="0" max="${SYL.lessons.length}" value="${taughtCount()}" data-change="taught"></label>`:''}
       <label class="f">End date <span class="muted" style="font-weight:400">${c.courseEnd?'(fixed)':'(automatic)'}</span><input type="date" value="${esc(c.courseEnd||courseEnd())}" data-change="course-end"></label>
       <label class="f">Free extra classes per student<input type="number" min="0" max="10" value="${esc(c.freeExtra)}" data-change="cfg" data-k="freeExtra"></label>
       <label class="f">Coordinator name<input value="${esc(c.coordinator)}" placeholder="e.g. Aysel" data-change="cfg" data-k="coordinator"></label></div>
@@ -1044,7 +1044,7 @@ function classForm(id){
   openDlg(isNew?'Add class':'Edit '+esc(c.name),`<label class="f">Name<input name="name" value="${esc(c.name)}" autofocus></label>
     <div class="frow"><label class="f">Day<select name="day"><option value="">Not set yet</option>${[1,2,3,4,5,6,7].map(d=>`<option value="${d}" ${+c.day===d?'selected':''}>${EN_DAYS[d]}</option>`).join('')}</select></label>
     <label class="f">Starts<input type="time" name="start" value="${esc(c.start)}"></label><label class="f">Ends<input type="time" name="end" value="${esc(c.end)}"></label></div>
-    <div class="frow"><label class="f">Usual format<select name="mode">${optList(MODES,c.mode)}</select></label><label class="f">Runs<select name="phase">${optList(PHASES,c.phase)}</select></label><label class="f">Type<select name="kind">${optList({main:'Main class',mentor:'Mentor hour'},c.kind)}</select></label></div>
+    <div class="frow"><label class="f">Usual format<select name="mode">${optList(MODES,c.mode)}</select></label><label class="f">Runs<select name="phase">${optList(PHASES,c.phase)}</select></label><label class="f">Type<select name="kind">${optList({main:'Instructor’s lesson',mentor:'Mentor hour (you teach)'},c.kind)}</select></label></div>
     <label class="cb"><input type="checkbox" name="active" ${c.active?'checked':''}>Active</label>
     ${used?`<div class="sub">${used} routine${used===1?'':'s'} follow this class's time automatically.</div>`:''}`,
     `${!isNew&&!used?'<button type="button" class="btn danger left" data-act="del-class">Delete</button>':''}<button type="button" class="btn" data-act="close">Cancel</button><button type="submit" class="btn primary">Save</button>`,f=>{
@@ -1213,7 +1213,7 @@ const ACT={
   'cal-sel':d=>{CAL.sel=d.d;if(d.d.slice(0,7)!==CAL.month.slice(0,7))CAL.month=d.d.slice(0,7)+'-01';render()},
   'cls-mode':d=>{const o=L().overrides[d.k]=L().overrides[d.k]||{};const cid=d.k.split('@')[0];if(classById(cid).mode===d.m)delete o.mode;else o.mode=d.m;if(!Object.keys(o).length)delete L().overrides[d.k];commit('log');closeDlg();toast('Format set to '+MODES[d.m])},
   'cls-cancel':d=>{const o=L().overrides[d.k]=L().overrides[d.k]||{};o.cancelled=!o.cancelled;if(!o.cancelled)delete o.cancelled;if(!Object.keys(o).length)delete L().overrides[d.k];commit('log');closeDlg();toast(o.cancelled?'Class cancelled. Its reminders are hidden.':'Class restored')},
-  'confirm-taught':()=>{const n=Math.max(0,+($('#bn-taught')||{}).value||0);const st=startForTaught(n);if(st)cfg().courseStart=st;cfg().startConfirmed=true;commit();toast(n+' lessons taught · month '+courseMonth(todayYmd())+', next lesson Gün '+(nextLesson()||'–'))},
+  'confirm-taught':()=>{const n=Math.max(0,+($('#bn-taught')||{}).value||0);const st=startForTaught(n);if(st)cfg().courseStart=st;cfg().startConfirmed=true;commit();toast(n+' lessons covered · month '+courseMonth(todayYmd())+', next lesson Gün '+(nextLesson()||'–'))},
   'end-auto':()=>{delete cfg().courseEnd;commit();toast('End date follows the last lesson again')},
   'confirm-start':()=>{const v=$('#bn-start').value;if(v)cfg().courseStart=v;cfg().startConfirmed=true;commit('settings');toast('Course start saved')},
   'move':d=>{const i=ITEMS.get(d.key);const f=$('#dlg-form');const nd=f.elements.mdate.value,nt=f.elements.mtime.value;if(!nd)return;
