@@ -1,5 +1,5 @@
 // Mentor Desk service worker: offline app shell.
-const CACHE = 'mentor-desk-202611242139';
+const CACHE = 'mentor-desk-202611242201';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
@@ -20,6 +20,25 @@ self.addEventListener('fetch', e => {
     if (isPage) return net.then(r => r || hit);
     return hit || net;
   }));
+});
+// Push from the Mentor Desk sender: the push carries no data, so ask the sender what is due and show it.
+self.addEventListener('push', e => {
+  e.waitUntil((async () => {
+    let items = [];
+    try {
+      const c = await caches.open('mentor-push-cfg');
+      const r = await c.match(new URL('./push-cfg', self.registration.scope).href);
+      const cfg = r ? await r.json() : null;
+      if (cfg) {
+        const res = await fetch(cfg.url + '/due', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: cfg.id, secret: cfg.secret }) });
+        if (res.ok) items = (await res.json()).items || [];
+      }
+    } catch (err) {}
+    if (!items.length) items = [{ title: 'Mentor Desk', body: 'A task is due now. Tap to open.', k: 'due' }];
+    for (const it of items.slice(0, 4)) {
+      await self.registration.showNotification(it.title, { body: it.body || 'Tap to open Mentor Desk', tag: 'md-' + (it.k || Date.now()), renotify: true, icon: 'icon-192.png', badge: 'icon-192.png', data: { url: './#today' } });
+    }
+  })());
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();

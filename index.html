@@ -512,21 +512,86 @@ function boot(){
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden){hiddenAt=Date.now();return}
     if(pinRec()&&hiddenAt&&Date.now()-hiddenAt>5*60*1000){lockNow();return}
-    if(S&&!locked){render();checkAlerts();}
+    if(S&&!locked){render();checkAlerts();schedulePushSync();}
   });
   document.addEventListener('keydown',e=>{if(!locked)return;if(/^[0-9]$/.test(e.key)){e.preventDefault();pinKey(e.key);const b=document.querySelector('.lk-key[data-k="'+e.key+'"]');if(b){b.classList.add('hit');setTimeout(()=>b.classList.remove('hit'),110)}}else if(e.key==='Backspace'){e.preventDefault();pinDel()}else if(e.key==='Enter'){e.preventDefault();tryUnlock()}});
   locked=!!pinRec();pinBuf='';
   setInterval(tick,30000);
   store.mode='local';loadLocal();syncIdle();render();renderInstall();
-  if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)){navigator.serviceWorker.register('sw.js').then(r=>{swReg=r}).catch(()=>{});}
+  if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)){navigator.serviceWorker.register('sw.js').then(r=>{swReg=r;const c=pushCfg();if(c&&c.on){writeSwCfg(c);syncPush(false)}}).catch(()=>{});}
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 }
 function renderInstall(){const b=$('#install');if(b)b.hidden=!installEvt}
-function commit(){if(S)cfg().updatedAt=new Date().toISOString();saveLocal();syncIdle();render();}
+function commit(){if(S)cfg().updatedAt=new Date().toISOString();saveLocal();syncIdle();render();schedulePushSync();}
+/* ---------- push notifications (via the Mentor Desk sender on Cloudflare) ---------- */
+const PUSH_URL='https://mentor-desk-push.mentordesk.workers.dev';
+const VAPID_PUBLIC='BOp7mKMtQ92c8cNtJLa-rmkUpMKRkd-C61CcmZqjGtZINIxoBns53PoyXs8rCoXK7cbWs1gojPVZ73AddLhXhM8';
+const PUSH_KEY='mentorDesk.push';
+let pushTimer=null;
+function pushCfg(){try{return JSON.parse(localStorage.getItem(PUSH_KEY)||'null')}catch(e){return null}}
+function pushOn(){const c=pushCfg();return !!(c&&c.on)}
+function pushSupported(){return location.protocol==='https:'&&'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
+function b64uToBytes(x){const p='='.repeat((4-x.length%4)%4);const b=atob((x+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0))}
+function randHex(n){const a=new Uint8Array(n);crypto.getRandomValues(a);return Array.from(a,x=>x.toString(16).padStart(2,'0')).join('')}
+async function swReady(){return swReg||await navigator.serviceWorker.ready}
+async function writeSwCfg(cfgObj){try{const c=await caches.open('mentor-push-cfg');await c.put(new URL('./push-cfg',location.href).href,new Response(JSON.stringify({url:PUSH_URL,id:cfgObj.id,secret:cfgObj.secret}),{headers:{'Content-Type':'application/json'}}))}catch(e){}}
+function pushItems(){
+  const t=todayYmd(),now=Date.now(),out=[];
+  for(const i of itemsFor(t,addDays(t,14))){
+    if(!checkable(i)||i.status||i.min==null)continue;
+    const [y,m,d]=i.date.split('-').map(Number);const ts=new Date(y,m-1,d,Math.floor(i.min/60),i.min%60).getTime();
+    if(ts<now-30e3)continue;
+    const priv=i.src==='extra'||i.src==='xatt';   /* no student names leave the device */
+    out.push({k:i.key.slice(0,100),t:ts,title:priv?(i.src==='extra'?'Extra class now':'Fill the Extra Classes table'):i.title,body:(CATS[i.cat]||'Task')+' · tap to open Mentor Desk'});
+  }
+  return out.slice(0,400);
+}
+function strHash(x){let h=5381;for(let i=0;i<x.length;i++)h=(h*33+x.charCodeAt(i))|0;return String(h>>>0)}
+async function syncPush(force,sub){
+  const c=pushCfg();if(!S||!c||!c.on||!pushSupported())return false;
+  try{
+    const reg=await swReady();sub=sub||await reg.pushManager.getSubscription();
+    if(!sub){c.on=false;localStorage.setItem(PUSH_KEY,JSON.stringify(c));return false}
+    const items=pushItems(),h=strHash(sub.endpoint+JSON.stringify(items));
+    if(!force&&h===c.hash&&Date.now()-(c.at||0)<6*3600e3)return true;
+    const r=await fetch(PUSH_URL+'/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:c.id,secret:c.secret,sub:sub.toJSON(),items})});
+    if(r.ok){c.hash=h;c.at=Date.now();localStorage.setItem(PUSH_KEY,JSON.stringify(c))}
+    return r.ok;
+  }catch(e){return false}
+}
+function schedulePushSync(){if(!pushOn())return;clearTimeout(pushTimer);pushTimer=setTimeout(()=>syncPush(false),3000)}
+async function enablePush(){
+  if(!pushSupported()){toast('Push isn’t available here. Install the app to your home screen and open it from there.');return}
+  let perm;try{perm=await Notification.requestPermission()}catch(e){perm='denied'}
+  if(perm!=='granted'){toast('Notifications weren’t allowed. Allow them for this app in your phone settings.');render();return}
+  try{
+    const reg=await swReady();
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64uToBytes(VAPID_PUBLIC)});
+    const c=pushCfg()||{id:randHex(16),secret:randHex(24)};c.on=true;c.hash='';localStorage.setItem(PUSH_KEY,JSON.stringify(c));
+    await writeSwCfg(c);
+    const ok=await syncPush(true,sub);
+    toast(ok?'Push notifications are on':'Turned on, but the notification server didn’t answer. It retries automatically.');
+  }catch(e){toast('Couldn’t turn on push: '+(e&&e.message||'unknown error'))}
+  render();
+}
+async function disablePush(){
+  const c=pushCfg();
+  try{const reg=await swReady();const sub=await reg.pushManager.getSubscription();if(sub)await sub.unsubscribe()}catch(e){}
+  if(c){try{await fetch(PUSH_URL+'/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:c.id,secret:c.secret})})}catch(e){}
+    c.on=false;c.hash='';localStorage.setItem(PUSH_KEY,JSON.stringify(c))}
+  render();toast('Push notifications off');
+}
+async function testPush(){
+  const c=pushCfg();if(!c)return;
+  await syncPush(true);
+  try{const r=await fetch(PUSH_URL+'/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:c.id,secret:c.secret})});const j=await r.json();
+    toast(j.ok?'Test sent. Close the app: it should arrive in a few seconds.':'The push service refused it ('+j.status+'). Turn push off and on again.')}catch(e){toast('Couldn’t reach the notification server')}
+}
 function fmtStamp(iso){const d=new Date(iso);if(isNaN(d))return String(iso);return fmtEn(ymd(d))+' '+pad(d.getHours())+':'+pad(d.getMinutes())}
 function loadRecommended(){S=normalize(clone(DEF));store.empty=false;saveLocal();render();toast('Ready')}
 function checkAlerts(){
-  if(!S||locked||!('Notification' in window)||Notification.permission!=='granted')return;
+  if(!S||locked||pushOn()||!('Notification' in window)||Notification.permission!=='granted')return;
   const t=todayYmd(),n=nowMin();
   for(const i of itemsFor(t,t)){
     if(!checkable(i)||i.status||i.min==null||NOTIFIED.has(i.key))continue;
@@ -829,6 +894,8 @@ function banners(){
     <button class="btn sm wa" data-act="compose" data-tpl="mentor-time">${ICON.msg}Send time poll</button><button class="btn sm" data-act="edit-class" data-id="mentor">Set time</button></div>`);
   const used=Object.keys(L().done).length+Object.keys(tasks()).length>8;
   if(used&&(!c.lastBackup||daysBetween(c.lastBackup,t)>=14))out.push(`<div class="banner info"><div class="grow"><b>Export a snapshot.</b> Your data is only on this device${c.lastBackup?'. Last snapshot: '+esc(fmtEn(c.lastBackup)):''}. A snapshot keeps your laptop in sync and is your backup if the phone is lost.</div><button class="btn sm primary" data-act="backup">Export snapshot</button></div>`);
+  if(pushSupported()&&!pushOn()&&('Notification' in window)&&Notification.permission!=='denied'&&window.matchMedia&&matchMedia('(max-width:760px)').matches)
+    out.push(`<div class="banner info"><div class="grow"><b>Turn on push notifications.</b> Get each reminder on time, even when the app is closed.</div><button class="btn sm primary" data-act="push-on">Turn on</button></div>`);
   const miss=['attendance','classroom','mentorTable','extraTable','meeting'].filter(k=>!c.links[k]);
   if(miss.length)out.push(`<div class="banner info"><div class="grow"><b>Missing links:</b> ${miss.map(k=>esc(LINKS[k])).join(', ')}. Add them once and every task gets a one-tap button.</div><a class="btn sm" href="#setup">Open Setup</a></div>`);
   return out.join('');
@@ -1009,10 +1076,14 @@ function vSetup(){
       <div><b>iPhone (Safari):</b> tap Share → <b>Add to Home Screen</b>.</div>
       <div class="sub">Once installed it opens full screen from its own icon and works without internet.</div></section>
     <section class="panel stack"><h2>Notifications</h2>
-      <div class="stack" style="gap:6px"><b>1 · Alerts from this app</b>
+      <div class="stack" style="gap:6px"><b>1 · Push notifications (recommended)</b>
+        <div class="sub">Arrive at each task time even when Mentor Desk is closed and the phone is locked. ${ios?'On iPhone: add the app to the Home Screen and open it from there first.':''}</div>
+        <div class="row">${!pushSupported()?'<span class="chip">Not available here</span> <span class="sub">Open the installed app (from your home screen) to turn this on.</span>':pushOn()?'<span class="chip ok">On</span><button class="btn sm" data-act="push-test">Send a test push</button><button class="btn sm danger" data-act="push-off">Turn off</button>':(perm==='denied'?'<span class="chip bad">Notifications blocked</span> <span class="sub">Allow notifications for Mentor Desk in your phone settings, then come back.</span>':'<button class="btn sm primary" data-act="push-on">Turn on push notifications</button>')}</div>
+        <div class="sub">Only task times and titles go to the notification server. Extra-class tasks go without student names. Open the app at least once every two weeks to keep reminders coming.</div></div>
+      <div class="stack" style="gap:6px"><b>2 · Alerts while the app is open</b>
         <div class="sub">Fire at each task's time while the app is open or was used recently. ${ios?'On iPhone this works only after installing to the Home Screen.':''}</div>
         <div>${perm==='granted'?'<span class="chip ok">On</span> <button class="btn sm" data-act="notif-test">Send a test alert</button>':perm==='denied'?'<span class="chip bad">Blocked</span> <span class="sub">Allow notifications for this site in your browser settings.</span>':perm==='unsupported'?'<span class="chip">Not available in this browser</span>':'<button class="btn sm primary" data-act="notif">Turn on alerts</button>'}</div></div>
-      <div class="stack" style="gap:6px"><b>2 · Google Calendar (works even when the app is closed)</b>
+      <div class="stack" style="gap:6px"><b>3 · Google Calendar (backup option)</b>
         <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px" class="sub">
           <li>Tap the button below to download your reminders file.</li>
           <li>On a computer, open calendar.google.com → Settings → <b>Add calendar → Create new calendar</b>, name it <b>Mentor</b>, and set its default notification to <b>0 minutes</b>.</li>
@@ -1372,6 +1443,9 @@ const ACT={
     try{localStorage.setItem(PIN_KEY,JSON.stringify({salt,len:a.length,hash:await hashPin(a,salt)}));render();toast('PIN set. Write it down somewhere safe.')}catch(e){toast('Couldn’t save the PIN on this device')}},
   'install':async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){}installEvt=null;renderInstall();},
   'notif':async()=>{try{const p=await Notification.requestPermission();toast(p==='granted'?'Alerts on':'Alerts not allowed');}catch(e){toast('This browser can’t show alerts')}render()},
+  'push-on':()=>enablePush(),
+  'push-off':()=>disablePush(),
+  'push-test':()=>testPush(),
   'notif-test':()=>{const o={body:'Alerts work. You will get one at each task time while the app is open or recently used.',icon:'icon-192.png',tag:'test'};try{if(swReg&&swReg.showNotification)swReg.showNotification('Mentor Desk',o);else new Notification('Mentor Desk',o)}catch(e){toast('Couldn’t show the alert')}},
   'reset-plan':(d,b)=>armDelete(b,()=>{S.plan=clone(DEF.plan);S.templates=clone(DEF.templates);S.settings.classes=clone(DEF.settings.classes);commit('plan','templates','settings');toast('Routines and templates reset')})
 };
@@ -1388,7 +1462,7 @@ function onChange(e){
     rd.onload=()=>{let o;try{o=JSON.parse(rd.result);if(!o||!o.plan||!o.settings)throw 0}catch(err){toast('That file is not a Mentor Desk setup file');return}
       openDlg('Clean this device?',`<div>Everything on this device is erased and replaced with <b>${esc(file.name)}</b>.</div><div class="sub">Tip: export a snapshot first if you might want today's data back.</div>`,
         `<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn danger" id="do-reset">Erase &amp; load</button>`,
-        ()=>{$('#do-reset').onclick=()=>{S=normalize(o);store.empty=false;saveLocal();syncIdle();closeDlg();location.hash='#today';render();toast('Clean start. Setup file loaded.')}});};
+        ()=>{$('#do-reset').onclick=()=>{S=normalize(o);store.empty=false;saveLocal();syncIdle();schedulePushSync();closeDlg();location.hash='#today';render();toast('Clean start. Setup file loaded.')}});};
     rd.readAsText(file);el.value='';return}
   if(!S)return;
   if(k==='cfg'){let v=el.value;if(el.type==='number')v=Math.max(+el.min||0,+v||0);cfg()[el.dataset.k]=v;if(el.dataset.k==='courseStart')cfg().startConfirmed=true;commit('settings');toast('Saved')}
@@ -1401,7 +1475,7 @@ function restoreFrom(el){
   const file=el.files&&el.files[0];if(!file)return;const rd=new FileReader();
   rd.onload=()=>{let o;try{o=JSON.parse(rd.result);if(!o||!o.plan||!o.settings)throw 0}catch(err){toast('That file is not a Mentor Desk setup or backup file');return}
     const theirs=(o.settings&&o.settings.settings&&o.settings.settings.updatedAt)||o.exported||'';
-    const apply=()=>{S=normalize(o);store.empty=false;saveLocal();syncIdle();closeDlg();render();toast('Snapshot imported. This device is up to date.')};
+    const apply=()=>{S=normalize(o);store.empty=false;saveLocal();syncIdle();schedulePushSync();closeDlg();render();toast('Snapshot imported. This device is up to date.')};
     if(!S){apply();return}
     const mine=cfg().updatedAt||'',older=!!(mine&&theirs&&theirs<mine);
     openDlg(older?'This snapshot is older':'Import this snapshot?',`<div>Snapshot: <b>${theirs?esc(fmtStamp(theirs)):'unknown time'}</b><br>This device: <b>${mine?esc(fmtStamp(mine)):'unknown time'}</b></div><div class="sub">${older?'Importing it would undo the newer changes on this device.':'It replaces everything on this device.'}</div>`,`<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn ${older?'danger':'primary'}" id="do-restore">${older?'Import anyway':'Import'}</button>`,()=>{$('#do-restore').onclick=apply});};
