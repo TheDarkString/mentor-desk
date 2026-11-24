@@ -527,7 +527,7 @@ function commit(){if(S)cfg().updatedAt=new Date().toISOString();saveLocal();sync
 const PUSH_URL='https://mentor-desk-push.mentordesk.workers.dev';
 const VAPID_PUBLIC='BOp7mKMtQ92c8cNtJLa-rmkUpMKRkd-C61CcmZqjGtZINIxoBns53PoyXs8rCoXK7cbWs1gojPVZ73AddLhXhM8';
 const PUSH_KEY='mentorDesk.push';
-let pushTimer=null;
+let pushTimer=null,pushLast='';
 function pushCfg(){try{return JSON.parse(localStorage.getItem(PUSH_KEY)||'null')}catch(e){return null}}
 function pushOn(){const c=pushCfg();return !!(c&&c.on)}
 function pushSupported(){return location.protocol==='https:'&&'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
@@ -562,13 +562,14 @@ async function syncPush(force,sub){
     if(!sub){c.on=false;localStorage.setItem(PUSH_KEY,JSON.stringify(c));return false}
     const items=pushItems(),h=strHash(sub.endpoint+JSON.stringify(items));
     if(!force&&h===c.hash&&Date.now()-(c.at||0)<6*3600e3)return true;
-    const r=await fetch(PUSH_URL+'/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:c.id,secret:c.secret,sub:sub.toJSON(),items})});
-    if(r.ok){c.hash=h;c.at=Date.now();localStorage.setItem(PUSH_KEY,JSON.stringify(c))}
-    return r.ok;
+    const r=await fetch(PUSH_URL+'/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:c.id,secret:c.secret,code:c.code||'',sub:sub.toJSON(),items})});
+    if(r.status===401){c.on=false;delete c.code;localStorage.setItem(PUSH_KEY,JSON.stringify(c));pushLast='code';return false}
+    if(r.ok){c.hash=h;c.at=Date.now();c.registered=true;delete c.code;localStorage.setItem(PUSH_KEY,JSON.stringify(c))}
+    pushLast=r.ok?'ok':'fail';return r.ok;
   }catch(e){return false}
 }
 function schedulePushSync(){if(!pushOn())return;clearTimeout(pushTimer);pushTimer=setTimeout(()=>syncPush(false),3000)}
-async function enablePush(){
+async function enablePush(code){
   if(!pushSupported()){toast('Push isn’t available here. Install the app to your home screen and open it from there.');return}
   let perm;try{perm=await Notification.requestPermission()}catch(e){perm='denied'}
   if(perm!=='granted'){toast('Notifications weren’t allowed. Allow them for this app in your phone settings.');render();return}
@@ -576,10 +577,11 @@ async function enablePush(){
     const reg=await swReady();
     let sub=await reg.pushManager.getSubscription();
     if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64uToBytes(VAPID_PUBLIC)});
-    const c=pushCfg()||{id:randHex(16),secret:randHex(24)};c.on=true;c.hash='';localStorage.setItem(PUSH_KEY,JSON.stringify(c));
+    const c=pushCfg()||{id:randHex(16),secret:randHex(24)};c.on=true;c.hash='';if(code)c.code=code;localStorage.setItem(PUSH_KEY,JSON.stringify(c));
     await writeSwCfg(c);
     const ok=await syncPush(true,sub);
-    toast(ok?'Push notifications are on':'Turned on, but the notification server didn’t answer. It retries automatically.');
+    if(!ok&&pushLast==='code'){try{await sub.unsubscribe()}catch(e){}toast('Wrong push code. Check push-code.txt on your computer.')}
+    else toast(ok?'Push notifications are on':'Turned on, but the notification server didn’t answer. It retries automatically.');
   }catch(e){toast('Couldn’t turn on push: '+(e&&e.message||'unknown error'))}
   render();
 }
@@ -1453,7 +1455,10 @@ const ACT={
     try{localStorage.setItem(PIN_KEY,JSON.stringify({salt,len:a.length,hash:await hashPin(a,salt)}));render();toast('PIN set. Write it down somewhere safe.')}catch(e){toast('Couldn’t save the PIN on this device')}},
   'install':async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){}installEvt=null;renderInstall();},
   'notif':async()=>{try{const p=await Notification.requestPermission();toast(p==='granted'?'Alerts on':'Alerts not allowed');}catch(e){toast('This browser can’t show alerts')}render()},
-  'push-on':()=>enablePush(),
+  'push-on':()=>{const c=pushCfg();if(c&&c.registered){enablePush();return}
+    openDlg('Push code',`<div class="sub">Enter your private push code. It keeps copies of this app off your notification server. Only needed once per device. It is in <b>push-code.txt</b> on your computer.</div><input id="push-code" class="in mono" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" style="text-transform:uppercase;letter-spacing:.15em;font-size:20px;text-align:center">`,
+      `<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn primary" data-act="push-code-ok">Continue</button>`,()=>setTimeout(()=>{const i=$('#push-code');if(i)i.focus()},50))},
+  'push-code-ok':()=>{const v=(($('#push-code')||{}).value||'').trim().toUpperCase();if(v.length<6){toast('Enter the push code');return}closeDlg();enablePush(v)},
   'push-off':()=>disablePush(),
   'push-test':()=>testPush(),
   'push-sync':async()=>{const ok=await syncPush(true);render();toast(ok?'Schedule sent':'Couldn’t reach the notification server')},
