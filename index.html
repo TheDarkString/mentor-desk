@@ -264,7 +264,7 @@ label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--in
 }
 </style>
 
-<script type="application/json" id="defaults-json">{"settings":{"settings":{"courseStart":"2026-11-01","startConfirmed":false,"months":8,"freeExtra":3,"coordinator":"","links":{"attendance":"","mentorTable":"","extraTable":"","classroom":"","youtube":"","studio":"","meeting":"","group":""}},"classes":[]},"plan":{"routines":[]},"templates":{"list":[]},"tasks":{"items":{}},"log":{"done":{},"overrides":{},"lessons":{}},"people":{"students":{},"topics":{},"gifts":{}},"course":{"months":[],"lessons":[]}}</script>
+<script type="application/json" id="defaults-json">{"settings":{"settings":{"courseStart":"2026-11-01","startConfirmed":false,"months":8,"freeExtra":3,"coordinator":"","links":{"attendance":"","mentorTable":"","extraTable":"","classroom":"","youtube":"","studio":"","meeting":"","group":""},"trackFrom":"2026-11-25","instructor":""},"classes":[]},"plan":{"routines":[]},"templates":{"list":[]},"tasks":{"items":{}},"log":{"done":{},"overrides":{},"lessons":{}},"people":{"students":{},"topics":{},"gifts":{}},"course":{"months":[],"lessons":[]}}</script>
 
 <div class="top">
   <div class="gutter"><div class="inner">
@@ -432,7 +432,8 @@ function boot(){
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 }
 function renderInstall(){const b=$('#install');if(b)b.hidden=!installEvt}
-function commit(){saveLocal();syncIdle();render();}
+function commit(){if(S)cfg().updatedAt=new Date().toISOString();saveLocal();syncIdle();render();}
+function fmtStamp(iso){const d=new Date(iso);if(isNaN(d))return String(iso);return fmtEn(ymd(d))+' '+pad(d.getHours())+':'+pad(d.getMinutes())}
 function loadRecommended(){S=normalize(clone(DEF));store.empty=false;saveLocal();render();toast('Ready')}
 function checkAlerts(){
   if(!S||locked||!('Notification' in window)||Notification.permission!=='granted')return;
@@ -450,6 +451,7 @@ function downloadFile(name,text,type){
   try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);return true}
   catch(e){toast('This browser blocked the download');return false}
 }
+function snapName(){const d=new Date();return 'mentor-desk-snapshot-'+todayYmd()+'-'+pad(d.getHours())+pad(d.getMinutes())+'.json'}
 function backupJson(){return JSON.stringify(Object.assign({app:'mentor-desk',version:1,exported:new Date().toISOString()},S),null,2)}
 function canShareFiles(){try{return !!(navigator.canShare&&navigator.canShare({files:[new File(['x'],'x.json',{type:'application/json'})]}))}catch(e){return false}}
 function buildIcs(){
@@ -494,16 +496,18 @@ function lessonSchedule(){
     for(let d=cs,i=0;out.length<total&&i<900;i++,d=addDays(d,1)){
       for(const c of (byDay[isoDow(d)]||[])){
         if(out.length>=total)break;
-        if((L().overrides[c.id+'@'+d]||{}).cancelled)continue;
-        out.push({n:out.length+1,date:d,classId:c.id,min:toMin(c.start)});
+        const ov=L().overrides[c.id+'@'+d]||{};if(ov.cancelled)continue;
+        const mv=ov.moved&&ov.moved.date?ov.moved:null;
+        out.push({n:out.length+1,date:mv?mv.date:d,origDate:d,classId:c.id,min:mv&&mv.start?toMin(mv.start):toMin(c.start)});
       }
     }
+    out.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:a.min-b.min);out.forEach((l,i)=>l.n=i+1);
   }
   LS_CACHE={key,list:out};return out;
 }
 const totalMonths=()=>SYL.lessons.length?Math.ceil(SYL.lessons.length/LPM):(+cfg().months||8);
 function evenMonthStart(k){const cs=cfg().courseStart,ce=cfg().courseEnd;if(!ce)return addMonths(cs,k);return addDays(cs,Math.round(k*daysBetween(cs,ce)/totalMonths()))}
-const phaseStart=p=>{const k=p==='month2'?1:p==='month3'?2:0;if(!k)return cfg().courseStart;const l=lessonSchedule()[k*LPM];return l?l.date:evenMonthStart(k)};
+const phaseStart=p=>{const k=p==='month2'?1:p==='month3'?2:0;if(!k)return cfg().courseStart;const l=lessonSchedule()[k*LPM-1];return l?addDays(l.date,1):evenMonthStart(k)};
 function courseEnd(){const c=cfg();if(c.courseEnd)return c.courseEnd;const ls=lessonSchedule();if(ls.length&&ls.length===SYL.lessons.length)return ls[ls.length-1].date;return addDays(addMonths(c.courseStart,+c.months||8),-1)}
 const inPhase=(d,p)=>d>=phaseStart(p||'all')&&d<=courseEnd();
 function isTaught(l){const t=todayYmd();return l.date<t||(l.date===t&&nowMin()>=l.min+60)}
@@ -511,7 +515,7 @@ const taughtCount=()=>lessonSchedule().filter(isTaught).length;
 function courseMonth(d){
   const cs=cfg().courseStart;if(d<cs)return 0;
   const ls=lessonSchedule();
-  if(ls.length){const n=ls.filter(l=>l.date<=d).length;return Math.min(Math.max(1,Math.ceil(n/LPM)),totalMonths())}
+  if(ls.length){let m=1;for(let k=1;k<totalMonths();k++){const l=ls[k*LPM-1];if(l&&d>l.date)m=k+1;else break}return m}
   let m=1;while(m<totalMonths()&&d>=evenMonthStart(m))m++;return m;
 }
 function lessonAt(classId,date){const l=lessonSchedule().find(x=>x.classId===classId&&x.date===date);return l?l.n:null}
@@ -531,25 +535,28 @@ function classSessions(from,to){
   const out=[];
   for(const c of classes()){
     if(!c.active||!c.day||!c.start)continue;
-    let d=nextDow(from,+c.day);
-    for(;d<=to;d=addDays(d,7)){
+    const sm0=toMin(c.start),dur=Math.max(15,(toMin(c.end)??sm0+120)-sm0);
+    for(let d=nextDow(addDays(from,-21),+c.day);d<=addDays(to,21);d=addDays(d,7)){
       if(!inPhase(d,c.phase))continue;
       const ov=L().overrides[c.id+'@'+d]||{};
-      const sm=toMin(c.start),em=toMin(c.end)??sm+120;
-      out.push({c,date:d,mode:ov.mode||c.mode,cancelled:!!ov.cancelled,startMin:sm,endMin:em});
+      const mv=ov.moved&&ov.moved.date?ov.moved:null;
+      const date=mv?mv.date:d,sm=mv&&mv.start?toMin(mv.start):sm0;
+      if(date<from||date>to)continue;
+      out.push({c,date,origDate:d,moved:!!mv,mode:ov.mode||c.mode,cancelled:!!ov.cancelled,startMin:sm,endMin:sm+dur});
     }
   }
   return out;
 }
 let ITEMS=new Map();
 function itemsFor(from,to){
-  const out=[],lg=L(),sessions=classSessions(addDays(from,-3),addDays(to,3));
+  const out=[],lg=L(),sessions=classSessions(addDays(from,-3),addDays(to,3)),track=cfg().trackFrom||'';
   for(const s of sessions){
     if(s.date<from||s.date>to)continue;
-    out.push({key:'class:'+s.c.id+'@'+s.date,src:'class',date:s.date,min:s.startMin,end:s.endMin,title:s.c.name,cat:s.c.kind==='mentor'?'mentor':'class',classId:s.c.id,classDate:s.date,mode:s.mode,cancelled:s.cancelled,status:''});
+    out.push({key:'class:'+s.c.id+'@'+s.origDate,src:'class',date:s.date,min:s.startMin,end:s.endMin,title:s.c.name,cat:s.c.kind==='mentor'?'mentor':'class',classId:s.c.id,classDate:s.date,origDate:s.origDate,moved:s.moved,mode:s.mode,cancelled:s.cancelled,status:''});
   }
   const push=(r,date,min,extra)=>{
-    const key=r.id+'@'+(extra.classDate||date);
+    if(track&&date<track)return;
+    const key=r.id+'@'+(extra.origDate||extra.classDate||date);
     out.push(Object.assign({key,src:'routine',refId:r.id,date,min,title:r.title,cat:r.cat,tpl:r.tpl,link:r.link,notes:r.notes,status:lg.done[key]||''},extra));
   };
   for(const r of routines()){
@@ -562,7 +569,7 @@ function itemsFor(from,to){
         const base=(r.anchor==='end'?s.endMin:s.startMin)+(+r.offset||0);
         const shift=Math.floor(base/1440),min=base-shift*1440,date=addDays(s.date,shift);
         if(date<from||date>to)continue;
-        push(r,date,min,{classId:s.c.id,classDate:s.date});
+        push(r,date,min,{classId:s.c.id,classDate:s.date,origDate:s.origDate,sessMin:s.startMin});
       }
     }else if(r.kind==='weekly'){
       for(let d=nextDow(from,+r.day);d<=to;d=addDays(d,7))if(inPhase(d,r.phase))push(r,d,toMin(r.time),{});
@@ -576,7 +583,14 @@ function itemsFor(from,to){
   }
   for(const [sid,st] of Object.entries(P().students)){
     for(const se of (st.sessions||[])){
-      if(!se.date||se.date<from||se.date>to)continue;
+      if(!se.date)continue;
+      /* every extra class gets its own "log attendance" task ~15 min after it ends (60 min assumed) */
+      if(se.status!=='cancelled'){
+        let d2=se.date,m2=se.time?toMin(se.time)+75:null;if(m2!=null&&m2>=1440){d2=addDays(d2,1);m2-=1440}
+        const k2='xatt:'+sid+':'+se.id;
+        if(d2>=from&&d2<=to&&!(track&&d2<track))out.push({key:k2,src:'xatt',refId:se.id,sid,date:d2,min:m2,title:'Fill Extra Classes table · '+st.name,cat:'table',tpl:'',link:'extraTable',notes:(se.topic?se.topic+' · ':'')+'Log attendance for this extra class.',status:lg.done[k2]||''});
+      }
+      if(se.date<from||se.date>to)continue;
       out.push({key:'extra:'+sid+':'+se.id,src:'extra',refId:se.id,sid,date:se.date,min:toMin(se.time),title:'Extra class · '+st.name,cat:'extra',tpl:'extra-confirm',link:'extraTable',notes:se.topic||'',status:se.status==='held'?'done':se.status==='cancelled'?'skip':''});
     }
   }
@@ -678,7 +692,7 @@ function itemRow(i,opts={}){
       <span class="clsdot">${ICON.cls}</span>
       <div class="when">${opts.showDate?esc(fmtEn(i.date))+'<br>':''}${fromMin(i.min)}</div>
       <div class="body"><div class="t">${esc(i.title)} · ${fromMin(i.min)}–${fromMin(i.end)}</div>
-        <div class="meta">${c&&c.kind==='mentor'?'<span class="chip ok">You teach</span>':'<span class="chip">Instructor</span>'}<span class="chip">${esc(MODES[i.mode]||i.mode)}</span>${i.cancelled?'<span class="chip bad">Cancelled</span>':''}${(()=>{const ln=c&&c.kind==='main'&&!i.cancelled?lessonAt(i.classId,i.classDate):null;return ln?`<span>Gün ${ln} · ${esc(lessonTitle(ln))}</span>`:''})()}</div></div>
+        <div class="meta">${c&&c.kind==='mentor'?'<span class="chip ok">You teach</span>':'<span class="chip">Instructor</span>'}<span class="chip">${esc(MODES[i.mode]||i.mode)}</span>${i.cancelled?'<span class="chip bad">Cancelled</span>':''}${i.moved?`<span class="chip warn">Moved from ${esc(fmtEn(i.origDate))}</span>`:''}${(()=>{const ln=c&&c.kind==='main'&&!i.cancelled?lessonAt(i.classId,i.classDate):null;return ln?`<span>Gün ${ln} · ${esc(lessonTitle(ln))}</span>`:''})()}</div></div>
       <div class="acts"><button class="btn sm" data-act="item" data-key="${esc(i.key)}">Manage</button></div></div>`;
   }
   const over=!i.status&&isPast(i);
@@ -714,7 +728,7 @@ function banners(){
   if(m&&m.active&&!m.day&&t>=addDays(phaseStart('month2'),-28))out.push(`<div class="banner"><div class="grow"><b>Mentor hour has no fixed time yet.</b> Agree on one with students before ${esc(fmtEn(phaseStart('month2')))}. Its reminders, struggle polls and table tasks switch on once it's set.</div>
     <button class="btn sm wa" data-act="compose" data-tpl="mentor-time">${ICON.msg}Send time poll</button><button class="btn sm" data-act="edit-class" data-id="mentor">Set time</button></div>`);
   const used=Object.keys(L().done).length+Object.keys(tasks()).length>8;
-  if(used&&(!c.lastBackup||daysBetween(c.lastBackup,t)>=14))out.push(`<div class="banner info"><div class="grow"><b>Back up your data.</b> It's stored only on this device${c.lastBackup?'. Last backup: '+esc(fmtEn(c.lastBackup)):''}. A backup file lets you restore it if the phone is lost or reset.</div><button class="btn sm primary" data-act="backup">Download backup</button></div>`);
+  if(used&&(!c.lastBackup||daysBetween(c.lastBackup,t)>=14))out.push(`<div class="banner info"><div class="grow"><b>Export a snapshot.</b> Your data is only on this device${c.lastBackup?'. Last snapshot: '+esc(fmtEn(c.lastBackup)):''}. A snapshot keeps your laptop in sync and is your backup if the phone is lost.</div><button class="btn sm primary" data-act="backup">Export snapshot</button></div>`);
   const miss=['attendance','classroom','mentorTable','extraTable','meeting'].filter(k=>!c.links[k]);
   if(miss.length)out.push(`<div class="banner info"><div class="grow"><b>Missing links:</b> ${miss.map(k=>esc(LINKS[k])).join(', ')}. Add them once and every task gets a one-tap button.</div><a class="btn sm" href="#setup">Open Setup</a></div>`);
   return out.join('');
@@ -911,10 +925,12 @@ function vSetup(){
       ${SYL.lessons.length&&mainClasses().length?`<label class="f">Lessons covered by the instructor<input type="number" min="0" max="${SYL.lessons.length}" value="${taughtCount()}" data-change="taught"></label>`:''}
       <label class="f">End date <span class="muted" style="font-weight:400">${c.courseEnd?'(fixed)':'(automatic)'}</span><input type="date" value="${esc(c.courseEnd||courseEnd())}" data-change="course-end"></label>
       <label class="f">Free extra classes per student<input type="number" min="0" max="10" value="${esc(c.freeExtra)}" data-change="cfg" data-k="freeExtra"></label>
-      <label class="f">Coordinator name<input value="${esc(c.coordinator)}" placeholder="e.g. Aysel" data-change="cfg" data-k="coordinator"></label></div>
+      <label class="f">Coordinator name<input value="${esc(c.coordinator)}" placeholder="e.g. Aysel" data-change="cfg" data-k="coordinator"></label>
+      <label class="f">Instructor name<input value="${esc(c.instructor||'')}" placeholder="for the recording-link message" data-change="cfg" data-k="instructor"></label></div>
       <div class="sub" style="color:var(--ink)">Now: <b>month ${courseMonth(todayYmd())} of ${totalMonths()}</b>${nextLesson()?` · next lesson Gün ${nextLesson()} on ${esc(fmtEn(lessonDate(nextLesson())))}`:''}</div>
-      <div class="sub">Month 2 starts ${esc(fmtEn(phaseStart('month2')))}${SYL.lessons.length?' (lesson 9)':''} · Month 3 starts ${esc(fmtEn(phaseStart('month3')))}${SYL.lessons.length?' (lesson 17)':''} · Course ends ${esc(fmtEn(courseEnd()))}</div>
-      ${c.courseEnd?'<div><button class="btn sm" data-act="end-auto">Use automatic end date</button></div>':''}</section>
+      <div class="sub">Month 2 starts ${esc(fmtEn(phaseStart('month2')))}${SYL.lessons.length?' (after lesson 8)':''} · Month 3 starts ${esc(fmtEn(phaseStart('month3')))}${SYL.lessons.length?' (after lesson 16)':''} · Course ends ${esc(fmtEn(courseEnd()))}</div>
+      ${c.courseEnd?'<div><button class="btn sm" data-act="end-auto">Use automatic end date</button></div>':''}
+      <div class="row"><button class="btn sm" data-act="fresh-start">Clear overdue · start tracking from today</button>${c.trackFrom?`<span class="sub">Tracking since ${esc(fmtEn(c.trackFrom))}</span>`:''}</div></section>
     <section class="panel stack"><h2>Links</h2><div class="sub">Only https:// links are used. They become one-tap buttons on tasks and fill {link} / {classroom} in messages. They're saved on this device only.</div>
       ${Object.keys(LINKS).map(k=>`<label class="f">${esc(LINKS[k])}<input type="url" inputmode="url" placeholder="https://…" value="${esc(c.links[k]||'')}" data-change="link" data-k="${k}"></label>`).join('')}</section>
     <section class="panel stack"><h2>PIN lock</h2>
@@ -922,13 +938,14 @@ function vSetup(){
       ${pinRec()?'<div class="row"><span class="chip ok">PIN is on</span><button class="btn sm" data-act="lock-now">Lock now</button><button class="btn sm danger" data-act="remove-pin">Remove PIN</button></div><div class="sub">Change it:</div>':''}
       <div class="frow" style="max-width:420px"><label class="f">New PIN (4–8 digits)<input id="pin-new" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label><label class="f">Repeat PIN<input id="pin-new2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label></div>
       <div><button class="btn primary sm" data-act="set-pin">${pinRec()?'Change PIN':'Turn on PIN'}</button></div></section>
-    <section class="panel stack"><h2>Your data</h2>
-      <div class="sub">Everything is saved on this device only, so your phone and computer keep separate copies. Last backup: <b>${c.lastBackup?esc(fmtEn(c.lastBackup)):'never'}</b>.</div>
-      <div class="row"><button class="btn primary" data-act="backup">Download backup</button>
-      ${canShareFiles()?'<button class="btn" data-act="share-backup">Send backup (WhatsApp, Drive…)</button>':''}
-      <label class="btn" style="cursor:pointer">Restore from backup<input type="file" accept="application/json,.json" data-change="restore" hidden></label></div>
-      <div class="sub">To move everything to another device: send the backup file to yourself, open Mentor Desk there, then Restore.</div>
-      <div class="sub">To start over, restore your setup file.</div></section></div>`;
+    <section class="panel stack" id="sync-panel"><h2>Sync phone ↔ laptop</h2>
+      <div class="sub">There's no server, so each device keeps its own copy. To sync, export a snapshot on the device you used last and import it on the other. The snapshot replaces the older copy.</div>
+      <div style="font-size:14px">This device · last change <b>${c.updatedAt?esc(fmtStamp(c.updatedAt)):'—'}</b>${c.lastBackup?' · last snapshot exported '+esc(fmtEn(c.lastBackup)):''}</div>
+      <div class="row"><button class="btn primary" data-act="backup">Export snapshot</button>
+      ${canShareFiles()?'<button class="btn" data-act="share-backup">Send snapshot (WhatsApp, Drive…)</button>':''}
+      <label class="btn" style="cursor:pointer">Import snapshot<input type="file" accept="application/json,.json" data-change="restore" hidden></label></div>
+      <ol class="sub" style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px"><li>Done on the phone? Tap <b>Send snapshot</b> and send it to yourself (WhatsApp "Message yourself" or Drive).</li><li>On the laptop, download that file and tap <b>Import snapshot</b>.</li><li>Same the other way round. Import warns you if the file is older than what's on the device.</li></ol>
+      <div class="sub">Snapshots double as backups. To start over, import your setup file.</div></section></div>`;
 }
 
 /* ---------- dialogs ---------- */
@@ -983,10 +1000,14 @@ function itemDialog(key){
   const i=ITEMS.get(key);if(!i){render();return}
   const c=cfg();
   if(i.src==='class'){
-    const cl=classById(i.classId);const okey=i.classId+'@'+i.classDate;const ov=L().overrides[okey]||{};const nl=nextLesson();
+    const cl=classById(i.classId);const okey=i.classId+'@'+(i.origDate||i.classDate);const ov=L().overrides[okey]||{};const nl=nextLesson();
     openDlg(esc(i.title)+' · '+esc(fmtEn(i.date)),`<div class="sub mono">${fromMin(i.min)}–${fromMin(i.end)}</div>
       <div class="stack" style="gap:6px"><span class="eyebrow">Format this time</span><div class="seg">${Object.entries(MODES).map(([k,v])=>`<button type="button" data-act="cls-mode" data-k="${esc(okey)}" data-m="${k}" aria-pressed="${i.mode===k}">${v}</button>`).join('')}</div><div class="sub">Online or hybrid adds the “send meeting link” task 5 minutes before.</div></div>
       ${(()=>{const ln=cl.kind==='main'?lessonAt(i.classId,i.classDate):null;return ln?`<div class="panel stack" style="gap:4px"><span class="eyebrow">Lesson in this class</span><div><b>Gün ${ln}</b> · ${esc(lessonTitle(ln))}</div><div class="sub">Cancel this date and every later lesson moves to the next class automatically.</div></div>`:''})()}
+      <details ${i.moved?'open':''}><summary class="sub" style="cursor:pointer">Postpone / move this session</summary>
+        <div class="frow" style="margin-top:8px"><label class="f">New date<input type="date" name="cdate" value="${esc(i.date)}"></label><label class="f">New start time<input type="time" name="ctime" value="${fromMin(i.min)}"></label></div>
+        <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" data-act="cls-move" data-k="${esc(okey)}">Move session</button>${i.moved?`<button type="button" class="btn sm" data-act="cls-unmove" data-k="${esc(okey)}">Back to original time</button>`:''}<button type="button" class="btn sm wa" data-act="compose" data-tpl="class-moved" data-key="${esc(key)}">${ICON.msg}“Time changed” message</button></div>
+        <div class="sub" style="margin-top:6px">Every task tied to this session (reminder, link, attendance, recording) moves with it.</div></details>
       <div class="row"><button type="button" class="btn ${ov.cancelled?'':'danger'}" data-act="cls-cancel" data-k="${esc(okey)}">${ov.cancelled?'Restore this class':'Cancel this date'}</button>
       <button type="button" class="btn wa" data-act="compose" data-tpl="class-cancel" data-key="${esc(key)}">${ICON.msg}Cancellation message</button>
       <button type="button" class="btn" data-act="edit-class" data-id="${esc(i.classId)}">Edit class schedule</button></div>`,'');
@@ -1084,7 +1105,7 @@ function buildCtx(item,giftId,tplId){
   const ctx={};
   const dateFor=cd||sendDate;
   ctx['tarix']=fmtAz(dateFor);ctx['gün']=AZ_DAYS[isoDow(dateFor)];
-  ctx['saat']=item&&item.src==='extra'&&item.min!=null?fromMin(item.min):cl&&cl.start?cl.start:(item&&item.min!=null?fromMin(item.min):'');
+  ctx['saat']=item&&(item.src==='extra'||item.src==='class')&&item.min!=null?fromMin(item.min):item&&item.sessMin!=null?fromMin(item.sessMin):cl&&cl.start?cl.start:(item&&item.min!=null?fromMin(item.min):'');
   ctx['nə_vaxt']=dateFor===sendDate?'Bu gün':dateFor===addDays(sendDate,1)?'Sabah':AZ_DAYS[isoDow(dateFor)];
   ctx['link']=c.links.meeting||'';ctx['classroom']=c.links.classroom||'';ctx['youtube']=c.links.youtube||'';
   const dl=nextDow(sendDate,4);ctx['son_tarix']=fmtAz(dl)+' ('+AZ_DAYS[4]+')';
@@ -1094,7 +1115,8 @@ function buildCtx(item,giftId,tplId){
   const mentorish=tplId==='mentor-remind'||(cl&&cl.kind==='mentor');
   ctx['mövzu']=mentorish&&planned.length?planned.join(', '):lastTwo.join('; ');
   rl.forEach((n,i)=>ctx['mövzu_'+(i+1)]=lessonTitle(n));
-  ctx['koordinator']=c.coordinator||'';
+  ctx['koordinator']=c.coordinator||'';ctx['müəllim']=c.instructor||'';
+  if(item&&item.origDate&&item.origDate!==item.classDate){const od=item.origDate;ctx['köhnə_tarix']=fmtAz(od)+' ('+AZ_DAYS[isoDow(od)]+')';}
   if(item&&item.src==='extra'){const st=P().students[item.sid];const se=st&&(st.sessions||[]).find(x=>x.id===item.refId);ctx['ad']=st?st.name:'';ctx['mövzu']=se&&se.topic||'';const s=st?studentStats(st):null;const h=s&&s.held.find(x=>x.id===item.refId);ctx['say']=h?String(h.n):s?String(s.held.length+1):'';}
   if(giftId){const g=P().gifts[giftId];if(g){ctx['tapşırıq']=g.idea;ctx['mükafat']=g.reward||'';if(g.deadline)ctx['son_tarix']=fmtAz(g.deadline)+' ('+AZ_DAYS[isoDow(g.deadline)]+')';}}
   if(item&&item.tpl==='recording')ctx['tarix']=fmtAz(item.classDate||item.date);
@@ -1212,6 +1234,12 @@ const ACT={
   'cal-today':()=>{CAL.month=todayYmd().slice(0,7)+'-01';CAL.sel=todayYmd();render()},
   'cal-sel':d=>{CAL.sel=d.d;if(d.d.slice(0,7)!==CAL.month.slice(0,7))CAL.month=d.d.slice(0,7)+'-01';render()},
   'cls-mode':d=>{const o=L().overrides[d.k]=L().overrides[d.k]||{};const cid=d.k.split('@')[0];if(classById(cid).mode===d.m)delete o.mode;else o.mode=d.m;if(!Object.keys(o).length)delete L().overrides[d.k];commit('log');closeDlg();toast('Format set to '+MODES[d.m])},
+  'cls-move':d=>{const f=$('#dlg-form');const nd=f.elements.cdate.value,nt=f.elements.ctime.value;if(!nd||!nt){toast('Pick a date and time');return}
+    const [cid,od]=d.k.split('@');const cl=classById(cid);const o=L().overrides[d.k]=L().overrides[d.k]||{};
+    if(nd===od&&nt===cl.start)delete o.moved;else o.moved={date:nd,start:nt};if(!Object.keys(o).length)delete L().overrides[d.k];
+    commit();closeDlg();toast('Moved to '+fmtEn(nd)+' '+nt+'. Its tasks moved too.')},
+  'cls-unmove':d=>{const o=L().overrides[d.k]||{};delete o.moved;if(!Object.keys(o).length)delete L().overrides[d.k];commit();closeDlg();toast('Back to the original time')},
+  'fresh-start':()=>{cfg().trackFrom=todayYmd();commit();toast('Overdue cleared. Tracking starts today.')},
   'cls-cancel':d=>{const o=L().overrides[d.k]=L().overrides[d.k]||{};o.cancelled=!o.cancelled;if(!o.cancelled)delete o.cancelled;if(!Object.keys(o).length)delete L().overrides[d.k];commit('log');closeDlg();toast(o.cancelled?'Class cancelled. Its reminders are hidden.':'Class restored')},
   'confirm-taught':()=>{const n=Math.max(0,+($('#bn-taught')||{}).value||0);const st=startForTaught(n);if(st)cfg().courseStart=st;cfg().startConfirmed=true;commit();toast(n+' lessons covered · month '+courseMonth(todayYmd())+', next lesson Gün '+(nextLesson()||'–'))},
   'end-auto':()=>{delete cfg().courseEnd;commit();toast('End date follows the last lesson again')},
@@ -1220,10 +1248,10 @@ const ACT={
     if(i.src==='task'){const t=tasks()[i.refId];t.date=nd;t.time=nt;commit('tasks');}
     else{tasks()[uid('t')]={title:i.title,date:nd,time:nt,cat:i.cat,notes:(i.notes?i.notes+' ':'')+'(moved from '+fmtEn(i.date)+')',tpl:i.tpl||'',link:i.link||'',done:false};L().done[d.key]='skip';commit('tasks','log');}
     closeDlg();toast('Moved to '+fmtEn(nd))},
-  'backup':()=>{if(downloadFile('mentor-desk-backup-'+todayYmd()+'.json',backupJson(),'application/json')){cfg().lastBackup=todayYmd();commit();toast('Backup downloaded')}},
-  'share-backup':async()=>{const name='mentor-desk-backup-'+todayYmd()+'.json';
-    try{await navigator.share({files:[new File([backupJson()],name,{type:'application/json'})],title:'Mentor Desk backup'});cfg().lastBackup=todayYmd();commit();toast('Backup sent')}
-    catch(e){if(e&&e.name!=='AbortError')toast('Sharing failed. Use Download backup instead.')}},
+  'backup':()=>{if(downloadFile(snapName(),backupJson(),'application/json')){cfg().lastBackup=todayYmd();saveLocal();render();toast('Snapshot exported')}},
+  'share-backup':async()=>{
+    try{await navigator.share({files:[new File([backupJson()],snapName(),{type:'application/json'})],title:'Mentor Desk snapshot'});cfg().lastBackup=todayYmd();saveLocal();render();toast('Snapshot sent')}
+    catch(e){if(e&&e.name!=='AbortError')toast('Sharing failed. Use Export snapshot instead.')}},
   'ics':()=>{const r=buildIcs();if(!r.count){toast('No reminders to export yet');return}if(downloadFile('mentor-reminders.ics',r.text,'text/calendar'))toast(r.count+' repeating reminders exported')},
   'unlock':()=>tryUnlock(),
   'forgot-pin':()=>{const f=$('#forgot');if(f)f.hidden=false},
@@ -1231,7 +1259,7 @@ const ACT={
   'lock-now':()=>lockNow(),
   'remove-pin':(d,b)=>armDelete(b,()=>{try{localStorage.removeItem(PIN_KEY)}catch(e){}render();toast('PIN removed')}),
   'set-pin':async()=>{const a=($('#pin-new')||{}).value||'',b=($('#pin-new2')||{}).value||'';
-    if(!/^d{4,8}$/.test(a)){toast('Use 4 to 8 digits');return}if(a!==b){toast('The two PINs don’t match');return}
+    if(!/^\d{4,8}$/.test(a)){toast('Use 4 to 8 digits');return}if(a!==b){toast('The two PINs don’t match');return}
     const salt=Math.random().toString(36).slice(2,12);
     try{localStorage.setItem(PIN_KEY,JSON.stringify({salt,hash:await hashPin(a,salt)}));render();toast('PIN set. Write it down somewhere safe.')}catch(e){toast('Couldn’t save the PIN on this device')}},
   'install':async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){}installEvt=null;renderInstall();},
@@ -1258,9 +1286,11 @@ function onChange(e){
 function restoreFrom(el){
   const file=el.files&&el.files[0];if(!file)return;const rd=new FileReader();
   rd.onload=()=>{let o;try{o=JSON.parse(rd.result);if(!o||!o.plan||!o.settings)throw 0}catch(err){toast('That file is not a Mentor Desk setup or backup file');return}
-    const apply=()=>{S=normalize(o);store.empty=false;commit();closeDlg();toast('Loaded. Everything is on this device now.')};
+    const theirs=(o.settings&&o.settings.settings&&o.settings.settings.updatedAt)||o.exported||'';
+    const apply=()=>{S=normalize(o);store.empty=false;saveLocal();syncIdle();closeDlg();render();toast('Snapshot imported. This device is up to date.')};
     if(!S){apply();return}
-    openDlg('Replace your data?',`<div>This replaces everything in the app with the file from ${esc(o.exported?o.exported.slice(0,10):'your computer')}.</div>`,`<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn danger" id="do-restore">Replace my data</button>`,()=>{$('#do-restore').onclick=apply});};
+    const mine=cfg().updatedAt||'',older=!!(mine&&theirs&&theirs<mine);
+    openDlg(older?'This snapshot is older':'Import this snapshot?',`<div>Snapshot: <b>${theirs?esc(fmtStamp(theirs)):'unknown time'}</b><br>This device: <b>${mine?esc(fmtStamp(mine)):'unknown time'}</b></div><div class="sub">${older?'Importing it would undo the newer changes on this device.':'It replaces everything on this device.'}</div>`,`<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn ${older?'danger':'primary'}" id="do-restore">${older?'Import anyway':'Import'}</button>`,()=>{$('#do-restore').onclick=apply});};
   rd.readAsText(file);el.value='';
 }
 boot();
