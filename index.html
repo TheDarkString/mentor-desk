@@ -241,6 +241,33 @@ label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--in
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:20;box-shadow:var(--shadow);max-width:calc(100vw - 32px)}
 .loading{padding:60px 0;text-align:center;color:var(--ink-2)}
 @media (prefers-reduced-motion:no-preference){.item,.card{transition:background .15s,border-color .15s}}
+.bnav{display:none}
+.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.tile{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid var(--line);border-radius:12px;text-decoration:none;color:var(--ink);background:var(--surface)}
+.tile svg{width:24px;height:24px}
+.tile b{font-size:15px}
+.tile span{font-size:12.5px;color:var(--ink-2)}
+.tile[aria-current="page"]{border-color:var(--ink)}
+@media (max-width:760px){
+  .tabs{display:none}
+  .bar{padding-block:12px 10px}
+  .fab{display:none}
+  main{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}
+  .toast{bottom:calc(88px + env(safe-area-inset-bottom,0px))}
+  .bnav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;left:0;right:0;bottom:0;z-index:8;background:var(--surface);border-top:1px solid var(--line);
+    padding:6px max(6px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-left,0px))}
+  .bnav a,.bnav button{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px;min-width:0;font-size:11px;font-weight:500;color:var(--ink-2);text-decoration:none;background:none;border:none;padding:4px 0;cursor:pointer;position:relative;-webkit-tap-highlight-color:transparent}
+  .bnav svg{width:23px;height:23px}
+  .bnav [aria-current="page"]{color:var(--ink);font-weight:700}
+  .bnav [aria-current="page"] svg{stroke-width:2.4}
+  .bnav .lbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .bnav .pl{width:46px;height:46px;border-radius:15px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;margin-top:-18px;box-shadow:0 6px 16px rgb(0 0 0/.25)}
+  .bnav .pl svg{width:22px;height:22px}
+  .bnav .n{position:absolute;top:0;left:calc(50% + 6px);font-family:var(--font-mono);font-size:10px;background:var(--bad);color:#fff;border-radius:9px;padding:0 5px;line-height:16px}
+  dialog{width:100%;max-width:100%;margin:auto 0 0;border-radius:18px 18px 0 0;max-height:92dvh}
+  .dlg{max-height:92dvh}
+  .dlg>footer{padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+}
 /* phone layout (kept last so it overrides the rules above) */
 @media (max-width:600px){
   body{font-size:14.5px}
@@ -277,6 +304,7 @@ label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--in
   </div></div>
 </div>
 <main class="gutter"><div class="inner" id="main"><div class="loading">Loading your plan…</div></div></main>
+<nav class="bnav" id="bnav" aria-label="Sections"></nav>
 <button class="fab" data-act="quick" aria-label="Quick add task"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add task</button>
 <dialog id="dlg"><div id="dlg-body"></div></dialog>
 
@@ -309,6 +337,12 @@ const ICON={
   cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   copy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
   x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  today:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16.2 9.6"/></svg>',
+  users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20"/><circle cx="10" cy="8" r="3.5"/><path d="M20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.7a3.5 3.5 0 0 1 0 6.6"/></svg>',
+  grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg>',
+  repeat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l3 3-3 3"/><path d="M4 11.5V10a4 4 0 0 1 4-4h12"/><path d="M7 21l-3-3 3-3"/><path d="M20 12.5V14a4 4 0 0 1-4 4H4"/></svg>',
+  book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5a2 2 0 0 1 2-2h12v15H7a2 2 0 0 0-2 2z"/><path d="M5 20a2 2 0 0 0 2 2h12v-4"/></svg>',
+  sliders:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>',
   plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'
 };
 const VIEWS=[['today','Today'],['calendar','Calendar'],['plan','Weekly plan'],['messages','WP templates'],['students','Students'],['syllabus','Syllabus'],['setup','Setup']];
@@ -649,15 +683,25 @@ function gcalForRoutine(r){
 /* ---------- rendering ---------- */
 let VIEW='today',CAL={month:null,sel:null};
 function currentView(){const h=(location.hash||'').slice(1);return VIEWS.some(v=>v[0]===h)?h:'today'}
+const MORE_VIEWS=[['plan','Weekly plan','Routines, classes, mentor hour','repeat'],['messages','WP templates','Azerbaijani messages + polls','msg'],['syllabus','Syllabus','Lessons and their dates','book'],['setup','Setup','Sync, notifications, start over','sliders']];
+function renderBnav(od){
+  const more=MORE_VIEWS.some(v=>v[0]===VIEW);
+  const a=(id,lab,ic,badge)=>`<a href="#${id}" ${VIEW===id?'aria-current="page"':''}>${ICON[ic]}${badge?`<span class="n">${badge}</span>`:''}<span class="lbl">${lab}</span></a>`;
+  $('#bnav').innerHTML=a('today','Today','today',od)+a('calendar','Calendar','cal')
+    +`<button type="button" data-act="quick" aria-label="Add task"><span class="pl">${ICON.plus}</span><span class="lbl">Add</span></button>`
+    +a('students','Students','users')
+    +`<button type="button" data-act="more" ${more?'aria-current="page"':''}>${ICON.grid}<span class="lbl">${more?esc((MORE_VIEWS.find(v=>v[0]===VIEW)||[])[1]||'More'):'More'}</span></button>`;
+}
 function renderTabs(){
   const od=S?overdueItems().length:0;
+  renderBnav(od);
   $('#tabs').innerHTML=VIEWS.map(([id,lab])=>`<a href="#${id}" ${id===VIEW?'aria-current="page"':''}>${lab}${id==='today'&&od?`<span class="n">${od}</span>`:''}</a>`).join('');
 }
 function render(){
   VIEW=currentView();
   const main=$('#main');
   const fab=$('.fab');
-  $('#tabs').hidden=locked;if(fab)fab.hidden=locked||!S;
+  $('#tabs').hidden=locked;if(fab)fab.hidden=locked||!S;$('#bnav').hidden=locked||!S;
   if(locked){main.innerHTML=lockScreen();return}
   if(!S){
     renderTabs();
@@ -938,6 +982,10 @@ function vSetup(){
       ${pinRec()?'<div class="row"><span class="chip ok">PIN is on</span><button class="btn sm" data-act="lock-now">Lock now</button><button class="btn sm danger" data-act="remove-pin">Remove PIN</button></div><div class="sub">Change it:</div>':''}
       <div class="frow" style="max-width:420px"><label class="f">New PIN (4–8 digits)<input id="pin-new" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label><label class="f">Repeat PIN<input id="pin-new2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label></div>
       <div><button class="btn primary sm" data-act="set-pin">${pinRec()?'Change PIN':'Turn on PIN'}</button></div></section>
+    <section class="panel stack" id="start-over"><h2>Start over</h2>
+      <div class="sub">Cleans this device (tasks, ticks, students, topics, overdue, everything) and loads a fresh setup file. Your PIN stays.</div>
+      <div class="row"><label class="btn primary" style="cursor:pointer">Clean &amp; load setup file<input type="file" accept="application/json,.json" data-change="reset-load" hidden></label>
+      <button class="btn danger" data-act="erase-data">Erase everything</button></div></section>
     <section class="panel stack" id="sync-panel"><h2>Sync phone ↔ laptop</h2>
       <div class="sub">There's no server, so each device keeps its own copy. To sync, export a snapshot on the device you used last and import it on the other. The snapshot replaces the older copy.</div>
       <div style="font-size:14px">This device · last change <b>${c.updatedAt?esc(fmtStamp(c.updatedAt)):'—'}</b>${c.lastBackup?' · last snapshot exported '+esc(fmtEn(c.lastBackup)):''}</div>
@@ -1239,6 +1287,8 @@ const ACT={
     if(nd===od&&nt===cl.start)delete o.moved;else o.moved={date:nd,start:nt};if(!Object.keys(o).length)delete L().overrides[d.k];
     commit();closeDlg();toast('Moved to '+fmtEn(nd)+' '+nt+'. Its tasks moved too.')},
   'cls-unmove':d=>{const o=L().overrides[d.k]||{};delete o.moved;if(!Object.keys(o).length)delete L().overrides[d.k];commit();closeDlg();toast('Back to the original time')},
+  'more':()=>openDlg('More',`<div class="tiles">${MORE_VIEWS.map(([id,lab,sub,ic])=>`<a class="tile" href="#${id}" data-act="close" ${VIEW===id?'aria-current="page"':''}>${ICON[ic]}<b>${lab}</b><span>${sub}</span></a>`).join('')}</div>`,''),
+  'erase-data':(d,b)=>armDelete(b,()=>{try{localStorage.removeItem(LS_KEY)}catch(e){}S=null;store.empty=true;location.hash='#today';render();toast('Everything erased on this device')}),
   'fresh-start':()=>{cfg().trackFrom=todayYmd();commit();toast('Overdue cleared. Tracking starts today.')},
   'cls-cancel':d=>{const o=L().overrides[d.k]=L().overrides[d.k]||{};o.cancelled=!o.cancelled;if(!o.cancelled)delete o.cancelled;if(!Object.keys(o).length)delete L().overrides[d.k];commit('log');closeDlg();toast(o.cancelled?'Class cancelled. Its reminders are hidden.':'Class restored')},
   'confirm-taught':()=>{const n=Math.max(0,+($('#bn-taught')||{}).value||0);const st=startForTaught(n);if(st)cfg().courseStart=st;cfg().startConfirmed=true;commit();toast(n+' lessons covered · month '+courseMonth(todayYmd())+', next lesson Gün '+(nextLesson()||'–'))},
@@ -1276,6 +1326,12 @@ function onClick(e){
 function onChange(e){
   const el=e.target,k=el.dataset.change;if(!k)return;
   if(k==='restore'){restoreFrom(el);return}
+  if(k==='reset-load'){const file=el.files&&el.files[0];if(!file)return;const rd=new FileReader();
+    rd.onload=()=>{let o;try{o=JSON.parse(rd.result);if(!o||!o.plan||!o.settings)throw 0}catch(err){toast('That file is not a Mentor Desk setup file');return}
+      openDlg('Clean this device?',`<div>Everything on this device is erased and replaced with <b>${esc(file.name)}</b>.</div><div class="sub">Tip: export a snapshot first if you might want today's data back.</div>`,
+        `<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn danger" id="do-reset">Erase &amp; load</button>`,
+        ()=>{$('#do-reset').onclick=()=>{S=normalize(o);store.empty=false;saveLocal();syncIdle();closeDlg();location.hash='#today';render();toast('Clean start. Setup file loaded.')}});};
+    rd.readAsText(file);el.value='';return}
   if(!S)return;
   if(k==='cfg'){let v=el.value;if(el.type==='number')v=Math.max(+el.min||0,+v||0);cfg()[el.dataset.k]=v;if(el.dataset.k==='courseStart')cfg().startConfirmed=true;commit('settings');toast('Saved')}
   else if(k==='link'){const v=el.value.trim();if(v&&!safeUrl(v)){toast('Links must start with https://');return}cfg().links[el.dataset.k]=v;commit('settings');toast('Link saved')}
