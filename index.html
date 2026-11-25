@@ -459,6 +459,18 @@ function migrate(){
     for(const k of Object.keys(L().done))if(drop.some(id=>k.startsWith(id+'@')))delete L().done[k];
     c.migrations.push('link-in-reminder');changed=true;
   }
+  if(!c.migrations.includes('announcement-v2')){
+    /* 2026-11-25: the group's own announcement format; poll sent separately; 6 h before, night → 21:00 the evening before */
+    const tr=tplById('remind');
+    if(tr){tr.title='Class announcement + join poll';tr.text="🚨🚨  Dərs {dərs_no}🚨🚨\n{qrup}\n\n*TARİX - {tarix_rəqəm}*\n*SAAT  ⏰ {saat_nöqtə}*\n\n*Dərsə qatılım linki:*\n{link}\n\n📌 *QEYD*\nDərsə qatılmayacaq dostlarımızın öncədən qrupda və ya şəxsidə bizə bildirməsini xahiş edirik.\n\nTəşəkkürlər ❤️";}
+    const tm=tplById('mentor-remind');
+    if(tm){tm.title='Mentor-hour announcement + join poll';tm.text="🧠🧠  Mentor saatı  🧠🧠\n{qrup}\n\n*TARİX - {tarix_rəqəm}*\n*SAAT  ⏰ {saat_nöqtə}*\n\n*Mövzular:* {mövzu}\n\n*Qatılım linki:*\n{link}\n\n📌 *QEYD*\nQatılmayacaq dostlarımızın öncədən qrupda və ya şəxsidə bizə bildirməsini xahiş edirik.\n\nTəşəkkürlər ❤️";}
+    for(const r of routines()){
+      if(r.id==='thu-remind'||r.id==='sun-remind'){r.title='Send class announcement, then the poll (2 messages)';r.anchor='start';r.offset=-360;r.quiet=true;r.notes='6 hours before class. If that falls at night (22:00–08:00), it moves to 21:00 the evening before.'}
+      if(r.id==='mentor-remind'){r.title='Send mentor-hour announcement, then the poll (2 messages)';r.anchor='start';r.offset=-360;r.quiet=true;r.notes='6 hours before. Night times move to 21:00 the evening before.'}
+    }
+    c.migrations.push('announcement-v2');changed=true;
+  }
   return changed;
 }
 function saveLocal(){try{localStorage.setItem(LS_KEY,JSON.stringify(S));return true}catch(e){toast('Couldn’t save: this browser blocked storage. Download a backup now.');return false}}
@@ -757,7 +769,9 @@ function itemsFor(from,to){
         if(r.onlineOnly&&s.mode==='offline')continue;
         if(!inPhase(s.date,r.phase))continue;
         const base=(r.anchor==='end'?s.endMin:s.startMin)+(+r.offset||0);
-        const shift=Math.floor(base/1440),min=base-shift*1440,date=addDays(s.date,shift);
+        let shift=Math.floor(base/1440),min=base-shift*1440;
+        if(r.quiet&&isNight(min)){shift=-1;min=EVENING_AT}
+        const date=addDays(s.date,shift);
         if(date<from||date>to)continue;
         push(r,date,min,{classId:s.c.id,classDate:s.date,origDate:s.origDate,sessMin:s.startMin});
       }
@@ -799,17 +813,21 @@ function routineWhen(r){
   if(r.kind==='monthly')return 'Monthly, day '+r.dom+(r.time?' · '+r.time:'');
   const c=classById(r.classId);const name=c?c.name:'(deleted class)';
   const off=+r.offset||0;const rel=off===0?'At':hm(off)+(off<0?' before':' after');
-  let s=rel+' '+name+' '+(r.anchor==='end'?'ends':'starts');
+  let s=rel+' '+name+' '+(r.anchor==='end'?'ends':'starts')+(r.quiet?' (at night: 21:00 the evening before)':'');
   const rep=routineSlot(r);if(rep)s+=' → '+EN_D[rep.dow]+' '+fromMin(rep.min);
   return s;
 }
+/* Night rule for reminders: a send time between 22:00 and 08:00 moves to 21:00 the evening before the session. */
+const NIGHT_FROM=22*60,NIGHT_TO=8*60,EVENING_AT=21*60;
+const isNight=m=>m>=NIGHT_FROM||m<NIGHT_TO;
 function routineSlot(r){
   if(r.kind==='weekly')return{dow:+r.day,min:toMin(r.time)??540};
   if(r.kind==='class'){
     const c=classById(r.classId);if(!c||!c.day||!c.start)return null;
     const base=toMin(r.anchor==='end'?(c.end||c.start):c.start)+(+r.offset||0);
-    const shift=Math.floor(base/1440);
-    return{dow:((+c.day-1+shift)%7+7)%7+1,min:base-shift*1440};
+    let shift=Math.floor(base/1440),min=base-shift*1440;
+    if(r.quiet&&isNight(min)){shift=-1;min=EVENING_AT}
+    return{dow:((+c.day-1+shift)%7+7)%7+1,min};
   }
   return null;
 }
@@ -1134,7 +1152,8 @@ function vSetup(){
       <label class="f">End date <span class="muted" style="font-weight:400">${c.courseEnd?'(fixed)':'(automatic)'}</span><input type="date" value="${esc(c.courseEnd||courseEnd())}" data-change="course-end"></label>
       <label class="f">Free extra classes per student<input type="number" min="0" max="10" value="${esc(c.freeExtra)}" data-change="cfg" data-k="freeExtra"></label>
       <label class="f">Coordinator name<input value="${esc(c.coordinator)}" placeholder="e.g. Aysel" data-change="cfg" data-k="coordinator"></label>
-      <label class="f">Instructor name<input value="${esc(c.instructor||'')}" placeholder="for the recording-link message" data-change="cfg" data-k="instructor"></label></div>
+      <label class="f">Instructor name<input value="${esc(c.instructor||'')}" placeholder="for the recording-link message" data-change="cfg" data-k="instructor"></label>
+      <label class="f">Group name (announcements)<input value="${esc(c.groupName||'')}" placeholder="e.g. Python 15" data-change="cfg" data-k="groupName"></label></div>
       <div class="sub" style="color:var(--ink)">Now: <b>month ${courseMonth(todayYmd())} of ${totalMonths()}</b>${nextLesson()?` · next lesson Gün ${nextLesson()} on ${esc(fmtEn(lessonDate(nextLesson())))}`:''}</div>
       <div class="sub">Month 2 starts ${esc(fmtEn(phaseStart('month2')))}${SYL.lessons.length?' (after lesson 8)':''} · Month 3 starts ${esc(fmtEn(phaseStart('month3')))}${SYL.lessons.length?' (after lesson 16)':''} · Course ends ${esc(fmtEn(courseEnd()))}</div>
       ${c.courseEnd?'<div><button class="btn sm" data-act="end-auto">Use automatic end date</button></div>':''}
@@ -1255,6 +1274,7 @@ function routineForm(id){
       <label class="f">Hours<input type="number" min="0" max="168" name="oh" value="${Math.floor(Math.abs(off)/60)}"></label><label class="f">Minutes<input type="number" min="0" max="59" name="om" value="${Math.abs(off)%60}"></label>
       <label class="f">When<select name="dir">${optList({'before-start':'before it starts','after-start':'after it starts','before-end':'before it ends','after-end':'after it ends'},dir)}</select></label></div>
     <label class="cb" data-k="class"><input type="checkbox" name="onlineOnly" ${r.onlineOnly?'checked':''}>Only when that class is online or hybrid</label>
+    <label class="cb" data-k="class"><input type="checkbox" name="quiet" ${r.quiet?'checked':''}>If this falls at night (22:00–08:00), send at 21:00 the evening before</label>
     <div class="frow" data-k="weekly"><label class="f">Day<select name="day">${[1,2,3,4,5,6,7].map(d=>`<option value="${d}" ${+r.day===d?'selected':''}>${EN_DAYS[d]}</option>`).join('')}</select></label><label class="f">Time<input type="time" name="time" value="${esc(r.time||'09:00')}"></label></div>
     <div class="frow" data-k="monthly"><label class="f">Day of month<input type="number" min="1" max="28" name="dom" value="${esc(r.dom||1)}"></label><label class="f">Time<input type="time" name="mtime" value="${esc(r.time||'10:00')}"></label></div>
     <div class="frow"><label class="f">WhatsApp template<select name="tpl">${tplOptions(r.tpl)}</select></label><label class="f">Link button<select name="link">${linkOptions(r.link)}</select></label></div>
@@ -1265,7 +1285,7 @@ function routineForm(id){
     f.elements.kind.addEventListener('change',sync);sync();
     f.onsubmit=e=>{e.preventDefault();const title=val(f,'title');if(!title){toast('Add a title');return}
       const kind=val(f,'kind');const [d,a]=val(f,'dir').split('-');const mins=(+val(f,'oh')||0)*60+(+val(f,'om')||0);
-      Object.assign(r,{title,cat:val(f,'cat'),kind,phase:val(f,'phase'),classId:val(f,'classId'),anchor:a,offset:d==='before'?-mins:mins,onlineOnly:val(f,'onlineOnly'),day:+val(f,'day'),time:kind==='monthly'?val(f,'mtime'):val(f,'time'),dom:Math.min(28,Math.max(1,+val(f,'dom')||1)),tpl:val(f,'tpl'),link:val(f,'link'),notes:val(f,'notes'),active:val(f,'active')});
+      Object.assign(r,{title,cat:val(f,'cat'),kind,phase:val(f,'phase'),classId:val(f,'classId'),anchor:a,offset:d==='before'?-mins:mins,onlineOnly:val(f,'onlineOnly'),quiet:val(f,'quiet'),day:+val(f,'day'),time:kind==='monthly'?val(f,'mtime'):val(f,'time'),dom:Math.min(28,Math.max(1,+val(f,'dom')||1)),tpl:val(f,'tpl'),link:val(f,'link'),notes:val(f,'notes'),active:val(f,'active')});
       if(isNew)routines().push(r);else routines()[routines().findIndex(x=>x.id===id)]=r;
       commit('plan');closeDlg();toast('Routine saved');};
     const del=f.querySelector('[data-act="del-routine"]');if(del)del.onclick=()=>armDelete(del,()=>{S.plan.routines=routines().filter(x=>x.id!==id);commit('plan');closeDlg();toast('Routine deleted')});
@@ -1327,7 +1347,9 @@ function buildCtx(item,giftId,tplId){
   const mentorish=tplId==='mentor-remind'||(cl&&cl.kind==='mentor');
   ctx['mövzu']=mentorish&&planned.length?planned.join(', '):lastTwo.join('; ');
   rl.forEach((n,i)=>ctx['mövzu_'+(i+1)]=lessonTitle(n));
-  ctx['koordinator']=c.coordinator||'';ctx['müəllim']=c.instructor||'';
+  ctx['koordinator']=c.coordinator||'';ctx['müəllim']=c.instructor||'';ctx['qrup']=c.groupName||'';
+  {const dd=parseYmd(dateFor);ctx['tarix_rəqəm']=pad(dd.getDate())+'.'+pad(dd.getMonth()+1)+'.'+dd.getFullYear();ctx['saat_nöqtə']=String(ctx['saat']||'').replace(':','.');
+   const ln=item&&item.classId?lessonAt(item.classId,item.classDate):null;ctx['dərs_no']=ln?String(ln):'';}
   if(item&&item.origDate&&item.origDate!==item.classDate){const od=item.origDate;ctx['köhnə_tarix']=fmtAz(od)+' ('+AZ_DAYS[isoDow(od)]+')';}
   if(item&&item.src==='extra'){const st=P().students[item.sid];const se=st&&(st.sessions||[]).find(x=>x.id===item.refId);ctx['ad']=st?st.name:'';ctx['mövzu']=se&&se.topic||'';const s=st?studentStats(st):null;const h=s&&s.held.find(x=>x.id===item.refId);ctx['say']=h?String(h.n):s?String(s.held.length+1):'';}
   if(giftId){const g=P().gifts[giftId];if(g){ctx['tapşırıq']=g.idea;ctx['mükafat']=g.reward||'';if(g.deadline)ctx['son_tarix']=fmtAz(g.deadline)+' ('+AZ_DAYS[isoDow(g.deadline)]+')';}}
@@ -1352,9 +1374,9 @@ function composer(tplId,key,giftId){
   const fields=toks.map(k=>`<label class="f">{${esc(k)}}<input data-tok="${esc(k)}" value="${esc(vals[k])}" ${k==='video_link'?'placeholder="Paste the YouTube link" autofocus':''}></label>`).join('');
   const body=`${item?`<div class="sub">For: ${esc(item.title)} · ${esc(fmtEn(item.date))}</div>`:''}
     ${toks.length?`<details ${toks.some(k=>!vals[k])?'open':''}><summary class="sub" style="cursor:pointer">Fields (${toks.filter(k=>vals[k]).length}/${toks.length} filled)</summary><div class="frow" style="margin-top:8px">${fields}</div></details>`:''}
-    <div class="preview" id="cmp-prev"></div>
+    ${t.poll?'<div class="eyebrow">Step 1 · Message</div>':''}<div class="preview" id="cmp-prev"></div>
     <textarea class="in" id="cmp-out" hidden readonly rows="5" aria-label="Message text"></textarea>
-    ${t.poll?`<div class="poll"><div class="eyebrow">Poll · create it in WhatsApp: 📎 → Poll${t.poll.multi?' · allow multiple answers':''}</div><div class="row" style="justify-content:space-between"><b id="cmp-pq"></b><button type="button" class="btn sm" data-act="copy-poll" data-i="q">${ICON.copy}</button></div><div id="cmp-po"></div></div>`:''}
+    ${t.poll?`<div class="poll"><div class="eyebrow">Step 2 · Poll, send it as a separate message: in WhatsApp tap 📎 → Poll${t.poll.multi?' · allow multiple answers':''}</div><div class="row" style="justify-content:space-between"><b id="cmp-pq"></b><button type="button" class="btn sm" data-act="copy-poll" data-i="q">${ICON.copy}</button></div><div id="cmp-po"></div></div>`:''}
     ${needsVideo&&safeUrl(cfg().links.studio)?`<div class="sub">Upload first: <a href="${esc(safeUrl(cfg().links.studio))}" target="_blank" rel="noopener">YouTube Studio ↗</a></div>`:''}`;
   const doneBtn=item&&checkable(item)&&item.status!=='done'?`<button type="button" class="btn left" data-act="toggle" data-key="${esc(key)}" data-close="1">${ICON.check}Mark task done</button>`:'';
   openDlg(esc(t.title),body,`${doneBtn}<button type="button" class="btn" data-act="edit-tpl" data-id="${esc(t.id)}">Edit template</button><button type="button" class="btn" id="cmp-copy">${ICON.copy}Copy</button><a class="btn wa" id="cmp-wa" target="_blank" rel="noopener">${ICON.msg}Open WhatsApp</a>`,f=>{
