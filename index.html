@@ -435,6 +435,31 @@ function loadLocal(){
   let raw=null;try{raw=JSON.parse(localStorage.getItem(LS_KEY)||'null')}catch(e){raw=null}
   if(!raw){S=null;store.empty=true;return}
   S=normalize(raw);store.empty=false;
+  if(migrate())saveLocal();
+}
+/* One-time data updates. Each runs once per device and touches only what it names; everything else is kept. */
+function migrate(){
+  if(!S)return false;
+  const c=cfg();c.migrations=c.migrations||[];let changed=false;
+  if(!c.migrations.includes('link-in-reminder')){
+    /* 2026-11-25: the meeting link is sent inside the reminder (with the poll), not 5 minutes before */
+    const drop=['thu-link','sun-link','mentor-link'];
+    S.plan.routines=routines().filter(r=>!drop.includes(r.id));
+    for(const r of routines()){
+      if(r.id==='thu-remind'){r.title='Send class reminder + poll + meeting link';r.notes='6 hours before class. The message includes the meeting link.'}
+      if(r.id==='sun-remind'){r.title='Send class reminder + poll + meeting link';r.notes='Sent Saturday 20:00 (6 hours before 11:00 would be 05:00). The message includes the meeting link.'}
+      if(r.id==='mentor-remind'){r.title='Send mentor-hour reminder + poll + meeting link';r.notes='The message includes the meeting link.'}
+    }
+    const line='Onlayn qoşulmaq üçün link: {link}';
+    const gap='\n\n';
+    const addLink=(id,before,title)=>{const t=tplById(id);if(!t)return;if(!t.text.includes('{link}')){const i=t.text.indexOf(before);t.text=i>=0?t.text.slice(0,i)+line+gap+t.text.slice(i):t.text+gap+line}t.title=title};
+    addLink('remind','Zəhmət olmasa, dərsə necə qoşulacağınızı','Class reminder + meeting link + join poll');
+    addLink('mentor-remind','Necə qoşulacağınızı sorğuda qeyd edin','Mentor-hour reminder + meeting link + join poll');
+    const tl=tplById('link');if(tl)tl.title='Meeting link only (spare)';
+    for(const k of Object.keys(L().done))if(drop.some(id=>k.startsWith(id+'@')))delete L().done[k];
+    c.migrations.push('link-in-reminder');changed=true;
+  }
+  return changed;
 }
 function saveLocal(){try{localStorage.setItem(LS_KEY,JSON.stringify(S));return true}catch(e){toast('Couldn’t save: this browser blocked storage. Download a backup now.');return false}}
 function setSync(s,text){const el=$('#sync');if(!el)return;el.dataset.s=s;el.querySelector('span').textContent=text}
@@ -599,7 +624,7 @@ async function testPush(){
     toast(j.ok?'Test sent. Close the app: it should arrive in a few seconds.':'The push service refused it ('+j.status+'). Turn push off and on again.')}catch(e){toast('Couldn’t reach the notification server')}
 }
 function fmtStamp(iso){const d=new Date(iso);if(isNaN(d))return String(iso);return fmtEn(ymd(d))+' '+pad(d.getHours())+':'+pad(d.getMinutes())}
-function loadRecommended(){S=normalize(clone(DEF));store.empty=false;saveLocal();render();toast('Ready')}
+function loadRecommended(){S=normalize(clone(DEF));migrate();store.empty=false;saveLocal();render();toast('Ready')}
 function checkAlerts(){
   if(!S||locked||pushOn()||!('Notification' in window)||Notification.permission!=='granted')return;
   const t=todayYmd(),n=nowMin();
@@ -1478,7 +1503,7 @@ function onChange(e){
     rd.onload=()=>{let o;try{o=JSON.parse(rd.result);if(!o||!o.plan||!o.settings)throw 0}catch(err){toast('That file is not a Mentor Desk setup file');return}
       openDlg('Clean this device?',`<div>Everything on this device is erased and replaced with <b>${esc(file.name)}</b>.</div><div class="sub">Tip: export a snapshot first if you might want today's data back.</div>`,
         `<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn danger" id="do-reset">Erase &amp; load</button>`,
-        ()=>{$('#do-reset').onclick=()=>{S=normalize(o);store.empty=false;saveLocal();syncIdle();schedulePushSync();closeDlg();location.hash='#today';render();toast('Clean start. Setup file loaded.')}});};
+        ()=>{$('#do-reset').onclick=()=>{S=normalize(o);migrate();store.empty=false;saveLocal();syncIdle();schedulePushSync();closeDlg();location.hash='#today';render();toast('Clean start. Setup file loaded.')}});};
     rd.readAsText(file);el.value='';return}
   if(!S)return;
   if(k==='cfg'){let v=el.value;if(el.type==='number')v=Math.max(+el.min||0,+v||0);cfg()[el.dataset.k]=v;if(el.dataset.k==='courseStart')cfg().startConfirmed=true;commit('settings');toast('Saved')}
@@ -1491,7 +1516,7 @@ function restoreFrom(el){
   const file=el.files&&el.files[0];if(!file)return;const rd=new FileReader();
   rd.onload=()=>{let o;try{o=JSON.parse(rd.result);if(!o||!o.plan||!o.settings)throw 0}catch(err){toast('That file is not a Mentor Desk setup or backup file');return}
     const theirs=(o.settings&&o.settings.settings&&o.settings.settings.updatedAt)||o.exported||'';
-    const apply=()=>{S=normalize(o);store.empty=false;saveLocal();syncIdle();schedulePushSync();closeDlg();render();toast('Snapshot imported. This device is up to date.')};
+    const apply=()=>{S=normalize(o);migrate();store.empty=false;saveLocal();syncIdle();schedulePushSync();closeDlg();render();toast('Snapshot imported. This device is up to date.')};
     if(!S){apply();return}
     const mine=cfg().updatedAt||'',older=!!(mine&&theirs&&theirs<mine);
     openDlg(older?'This snapshot is older':'Import this snapshot?',`<div>Snapshot: <b>${theirs?esc(fmtStamp(theirs)):'unknown time'}</b><br>This device: <b>${mine?esc(fmtStamp(mine)):'unknown time'}</b></div><div class="sub">${older?'Importing it would undo the newer changes on this device.':'It replaces everything on this device.'}</div>`,`<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn ${older?'danger':'primary'}" id="do-restore">${older?'Import anyway':'Import'}</button>`,()=>{$('#do-restore').onclick=apply});};
