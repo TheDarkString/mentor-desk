@@ -1189,7 +1189,7 @@ function itemDialog(key){
   if(i.src==='class'){
     const cl=classById(i.classId);const okey=i.classId+'@'+(i.origDate||i.classDate);const ov=L().overrides[okey]||{};const nl=nextLesson();
     openDlg(esc(i.title)+' · '+esc(fmtEn(i.date)),`<div class="sub mono">${fromMin(i.min)}–${fromMin(i.end)}</div>
-      <div class="stack" style="gap:6px"><span class="eyebrow">Format this time</span><div class="seg">${Object.entries(MODES).map(([k,v])=>`<button type="button" data-act="cls-mode" data-k="${esc(okey)}" data-m="${k}" aria-pressed="${i.mode===k}">${v}</button>`).join('')}</div><div class="sub">Online or hybrid adds the “send meeting link” task 5 minutes before.</div></div>
+      <div class="stack" style="gap:6px"><span class="eyebrow">Format this time</span><div class="seg">${Object.entries(MODES).map(([k,v])=>`<button type="button" data-act="cls-mode" data-k="${esc(okey)}" data-m="${k}" aria-pressed="${i.mode===k}">${v}</button>`).join('')}</div><div class="sub">Online or hybrid: the reminder message includes the meeting link.</div></div>
       ${(()=>{const ln=cl.kind==='main'?lessonAt(i.classId,i.classDate):null;return ln?`<div class="panel stack" style="gap:4px"><span class="eyebrow">Lesson in this class</span><div><b>Gün ${ln}</b> · ${esc(lessonTitle(ln))}</div><div class="sub">Cancel this date and every later lesson moves to the next class automatically.</div></div>`:''})()}
       <details ${i.moved?'open':''}><summary class="sub" style="cursor:pointer">Postpone / move this session</summary>
         <div class="frow" style="margin-top:8px"><label class="f">New date<input type="date" name="cdate" value="${esc(i.date)}"></label><label class="f">New start time<input type="time" name="ctime" value="${fromMin(i.min)}"></label></div>
