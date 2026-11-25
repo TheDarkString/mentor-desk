@@ -889,7 +889,7 @@ function render(){
     if(store.empty){const built=(DEF.plan.routines||[]).length>0;main.innerHTML=`<div class="panel stack" style="max-width:620px;margin:30px auto;padding:24px">
       <h1>Welcome to Mentor Desk</h1>
       <p class="sub">Everything you add stays on this device. Nothing is sent anywhere.</p>
-      <div class="stack" style="gap:8px"><label class="btn primary" style="cursor:pointer;align-self:flex-start">Open my setup file<input type="file" accept="application/json,.json" data-change="restore" hidden></label>
+      <div class="stack" style="gap:8px"><label class="btn primary" style="cursor:pointer;align-self:flex-start">Open my setup file<input type="file" data-change="restore" hidden></label>
       <div class="sub">Your setup file (or a backup) loads your classes, routines, templates and syllabus in one step.</div></div>
       <div><button class="btn" data-act="load-recommended">${built?'Start with the built-in plan':'Start with an empty planner'}</button></div></div>`;}
     else main.innerHTML=`<div class="loading">${store.slow?'Your data can’t be reached yet. Check your connection; this page keeps trying.':'Loading your plan…'}</div>`;
@@ -1173,14 +1173,15 @@ function vSetup(){
       <div><button class="btn primary sm" data-act="set-pin">${pinRec()?'Change PIN':'Turn on PIN'}</button></div></section>
     <section class="panel stack" id="start-over"><h2>Start over</h2>
       <div class="sub">Cleans this device (tasks, ticks, students, topics, overdue, everything) and loads a fresh setup file. Your PIN stays.</div>
-      <div class="row"><label class="btn primary" style="cursor:pointer">Clean &amp; load setup file<input type="file" accept="application/json,.json" data-change="reset-load" hidden></label>
+      <div class="row"><label class="btn primary" style="cursor:pointer">Clean &amp; load setup file<input type="file" data-change="reset-load" hidden></label>
       <button class="btn danger" data-act="erase-data">Erase everything</button></div></section>
     <section class="panel stack" id="sync-panel"><h2>Sync phone ↔ laptop</h2>
       <div class="sub">There's no server, so each device keeps its own copy. To sync, export a snapshot on the device you used last and import it on the other. The snapshot replaces the older copy.</div>
       <div style="font-size:14px">This device · last change <b>${c.updatedAt?esc(fmtStamp(c.updatedAt)):'—'}</b>${c.lastBackup?' · last snapshot exported '+esc(fmtEn(c.lastBackup)):''}</div>
       <div class="row"><button class="btn primary" data-act="backup">Export snapshot</button>
       ${canShareFiles()?'<button class="btn" data-act="share-backup">Send snapshot (WhatsApp, Drive…)</button>':''}
-      <label class="btn" style="cursor:pointer">Import snapshot<input type="file" accept="application/json,.json" data-change="restore" hidden></label></div>
+      <label class="btn" style="cursor:pointer">Import snapshot<input type="file" data-change="restore" hidden></label></div>
+      <div class="row"><button class="btn sm" data-act="copy-snap">Copy as text</button><button class="btn sm" data-act="paste-snap">Paste text</button><span class="sub">No file needed: copy here, paste into WhatsApp “Message yourself”, then copy it there and use Paste text on the other device.</span></div>
       <ol class="sub" style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px"><li>Done on the phone? Tap <b>Send snapshot</b> and send it to yourself (WhatsApp "Message yourself" or Drive).</li><li>On the laptop, download that file and tap <b>Import snapshot</b>.</li><li>Same the other way round. Import warns you if the file is older than what's on the device.</li></ol>
       <div class="sub">Snapshots double as backups. To start over, import your setup file.</div></section></div>`;
 }
@@ -1491,6 +1492,12 @@ const ACT={
     else{tasks()[uid('t')]={title:i.title,date:nd,time:nt,cat:i.cat,notes:(i.notes?i.notes+' ':'')+'(moved from '+fmtEn(i.date)+')',tpl:i.tpl||'',link:i.link||'',done:false};L().done[d.key]='skip';commit('tasks','log');}
     closeDlg();toast('Moved to '+fmtEn(nd))},
   'backup':()=>{if(downloadFile(snapName(),backupJson(),'application/json')){cfg().lastBackup=todayYmd();saveLocal();render();toast('Snapshot exported')}},
+  'copy-snap':async(d,b)=>{const txt=JSON.stringify(Object.assign({app:'mentor-desk',version:1,exported:new Date().toISOString()},S));
+    try{await navigator.clipboard.writeText(txt);cfg().lastBackup=todayYmd();saveLocal();toast('Snapshot copied ('+Math.round(txt.length/1024)+' KB). Paste it into WhatsApp “Message yourself”.')}
+    catch(e){openDlg('Copy this text',`<div class="sub">Select all and copy it.</div><textarea class="in mono" rows="8" readonly id="snap-txt" style="font-size:11px">${esc(txt)}</textarea>`,'',()=>{const t=$('#snap-txt');if(t){t.focus();t.select()}})}},
+  'paste-snap':()=>openDlg('Paste snapshot',`<div class="sub">Long-press the box and paste the snapshot text you copied (from WhatsApp, notes, email…).</div><textarea class="in mono" rows="8" id="snap-in" style="font-size:11px" placeholder="{&quot;app&quot;:&quot;mentor-desk&quot;, …"></textarea>`,
+    `<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn primary" data-act="paste-snap-go">Import</button>`,()=>{const t=$('#snap-in');if(t)t.focus()}),
+  'paste-snap-go':()=>{const v=($('#snap-in')||{}).value||'';if(!v.trim()){toast('Paste the snapshot text first');return}closeDlg();setTimeout(()=>importSnapshotText(v),60)},
   'share-backup':async()=>{
     try{await navigator.share({files:[new File([backupJson()],snapName(),{type:'application/json'})],title:'Mentor Desk snapshot'});cfg().lastBackup=todayYmd();saveLocal();render();toast('Snapshot sent')}
     catch(e){if(e&&e.name!=='AbortError')toast('Sharing failed. Use Export snapshot instead.')}},
@@ -1528,7 +1535,7 @@ function onChange(e){
   const el=e.target,k=el.dataset.change;if(!k)return;
   if(k==='restore'){restoreFrom(el);return}
   if(k==='reset-load'){const file=el.files&&el.files[0];if(!file)return;const rd=new FileReader();
-    rd.onload=()=>{let o;try{o=JSON.parse(rd.result);if(!o||!o.plan||!o.settings)throw 0}catch(err){toast('That file is not a Mentor Desk setup file');return}
+    rd.onload=()=>{const p=parseSnapshot(rd.result);if(p.err){toast('Can’t load: '+p.err);return}const o=p.o;
       openDlg('Clean this device?',`<div>Everything on this device is erased and replaced with <b>${esc(file.name)}</b>.</div><div class="sub">Tip: export a snapshot first if you might want today's data back.</div>`,
         `<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn danger" id="do-reset">Erase &amp; load</button>`,
         ()=>{$('#do-reset').onclick=()=>{S=normalize(o);migrate();store.empty=false;saveLocal();syncIdle();schedulePushSync();closeDlg();location.hash='#today';render();toast('Clean start. Setup file loaded.')}});};
@@ -1540,14 +1547,29 @@ function onChange(e){
   else if(k==='taught'){const n=Math.max(0,+el.value||0);const st=startForTaught(n);if(st){cfg().courseStart=st;cfg().startConfirmed=true;commit();toast('Synced: start '+fmtEn(st)+', month '+courseMonth(todayYmd()))}}
   else if(k==='course-end'){if(el.value&&el.value<=cfg().courseStart){toast('End date must be after the start date');render();return}if(el.value)cfg().courseEnd=el.value;else delete cfg().courseEnd;commit();toast('End date saved')}
 }
+function parseSnapshot(text){
+  text=String(text||'').replace(/^\uFEFF/,'');
+  const a=text.indexOf('{'),b=text.lastIndexOf('}');
+  if(a<0||b<a)return{err:'No snapshot data found in it.'};
+  let o;try{o=JSON.parse(text.slice(a,b+1))}catch(e){return{err:'The data is cut off or changed ('+e.message.slice(0,60)+'). Export it again.'}}
+  if(!o||!o.plan||!o.settings)return{err:'It is JSON, but not a Mentor Desk snapshot or setup file.'};
+  return{o};
+}
+function importSnapshotText(text){
+  const p=parseSnapshot(text);if(p.err){toast('Can’t import: '+p.err);return}
+  const o=p.o;
+  const theirs=(o.settings&&o.settings.settings&&o.settings.settings.updatedAt)||o.exported||'';
+  const apply=()=>{S=normalize(o);migrate();store.empty=false;saveLocal();syncIdle();schedulePushSync();closeDlg();render();toast('Snapshot imported. This device is up to date.')};
+  if(!S){apply();return}
+  const mine=cfg().updatedAt||'',older=!!(mine&&theirs&&theirs<mine);
+  openDlg(older?'This snapshot is older':'Import this snapshot?',`<div>Snapshot: <b>${theirs?esc(fmtStamp(theirs)):'unknown time'}</b><br>This device: <b>${mine?esc(fmtStamp(mine)):'unknown time'}</b></div><div class="sub">${older?'Importing it would undo the newer changes on this device.':'It replaces everything on this device.'}</div>`,`<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn ${older?'danger':'primary'}" id="do-restore">${older?'Import anyway':'Import'}</button>`,()=>{$('#do-restore').onclick=apply});
+}
 function restoreFrom(el){
-  const file=el.files&&el.files[0];if(!file)return;const rd=new FileReader();
-  rd.onload=()=>{let o;try{o=JSON.parse(rd.result);if(!o||!o.plan||!o.settings)throw 0}catch(err){toast('That file is not a Mentor Desk setup or backup file');return}
-    const theirs=(o.settings&&o.settings.settings&&o.settings.settings.updatedAt)||o.exported||'';
-    const apply=()=>{S=normalize(o);migrate();store.empty=false;saveLocal();syncIdle();schedulePushSync();closeDlg();render();toast('Snapshot imported. This device is up to date.')};
-    if(!S){apply();return}
-    const mine=cfg().updatedAt||'',older=!!(mine&&theirs&&theirs<mine);
-    openDlg(older?'This snapshot is older':'Import this snapshot?',`<div>Snapshot: <b>${theirs?esc(fmtStamp(theirs)):'unknown time'}</b><br>This device: <b>${mine?esc(fmtStamp(mine)):'unknown time'}</b></div><div class="sub">${older?'Importing it would undo the newer changes on this device.':'It replaces everything on this device.'}</div>`,`<button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn ${older?'danger':'primary'}" id="do-restore">${older?'Import anyway':'Import'}</button>`,()=>{$('#do-restore').onclick=apply});};
+  const file=el.files&&el.files[0];if(!file)return;
+  if(file.size>5e6){toast('That file is too big to be a snapshot');el.value='';return}
+  const rd=new FileReader();
+  rd.onerror=()=>toast('Couldn’t read that file. Try “Paste text” instead.');
+  rd.onload=()=>{importSnapshotText(rd.result)};
   rd.readAsText(file);el.value='';
 }
 boot();
