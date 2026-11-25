@@ -471,6 +471,13 @@ function migrate(){
     }
     c.migrations.push('announcement-v2');changed=true;
   }
+  if(!c.migrations.includes('announcement-v3')){
+    /* the second line of the announcement is the lesson name from the syllabus, not a group name */
+    const tr=tplById('remind');if(tr)tr.text=tr.text.split('{qrup}').join('{dərs_adı}');
+    const tm=tplById('mentor-remind');if(tm)tm.text=tm.text.split('{qrup}'+String.fromCharCode(10)).join('').split('{qrup}').join('');
+    delete c.groupName;
+    c.migrations.push('announcement-v3');changed=true;
+  }
   return changed;
 }
 function saveLocal(){try{localStorage.setItem(LS_KEY,JSON.stringify(S));return true}catch(e){toast('Couldn’t save: this browser blocked storage. Download a backup now.');return false}}
@@ -1152,8 +1159,7 @@ function vSetup(){
       <label class="f">End date <span class="muted" style="font-weight:400">${c.courseEnd?'(fixed)':'(automatic)'}</span><input type="date" value="${esc(c.courseEnd||courseEnd())}" data-change="course-end"></label>
       <label class="f">Free extra classes per student<input type="number" min="0" max="10" value="${esc(c.freeExtra)}" data-change="cfg" data-k="freeExtra"></label>
       <label class="f">Coordinator name<input value="${esc(c.coordinator)}" placeholder="e.g. Aysel" data-change="cfg" data-k="coordinator"></label>
-      <label class="f">Instructor name<input value="${esc(c.instructor||'')}" placeholder="for the recording-link message" data-change="cfg" data-k="instructor"></label>
-      <label class="f">Group name (announcements)<input value="${esc(c.groupName||'')}" placeholder="e.g. Python 15" data-change="cfg" data-k="groupName"></label></div>
+      <label class="f">Instructor name<input value="${esc(c.instructor||'')}" placeholder="for the recording-link message" data-change="cfg" data-k="instructor"></label></div>
       <div class="sub" style="color:var(--ink)">Now: <b>month ${courseMonth(todayYmd())} of ${totalMonths()}</b>${nextLesson()?` · next lesson Gün ${nextLesson()} on ${esc(fmtEn(lessonDate(nextLesson())))}`:''}</div>
       <div class="sub">Month 2 starts ${esc(fmtEn(phaseStart('month2')))}${SYL.lessons.length?' (after lesson 8)':''} · Month 3 starts ${esc(fmtEn(phaseStart('month3')))}${SYL.lessons.length?' (after lesson 16)':''} · Course ends ${esc(fmtEn(courseEnd()))}</div>
       ${c.courseEnd?'<div><button class="btn sm" data-act="end-auto">Use automatic end date</button></div>':''}
@@ -1349,7 +1355,7 @@ function buildCtx(item,giftId,tplId){
   rl.forEach((n,i)=>ctx['mövzu_'+(i+1)]=lessonTitle(n));
   ctx['koordinator']=c.coordinator||'';ctx['müəllim']=c.instructor||'';ctx['qrup']=c.groupName||'';
   {const dd=parseYmd(dateFor);ctx['tarix_rəqəm']=pad(dd.getDate())+'.'+pad(dd.getMonth()+1)+'.'+dd.getFullYear();ctx['saat_nöqtə']=String(ctx['saat']||'').replace(':','.');
-   const ln=item&&item.classId?lessonAt(item.classId,item.classDate):null;ctx['dərs_no']=ln?String(ln):'';}
+   const ln=item&&item.classId?lessonAt(item.classId,item.classDate):null;ctx['dərs_no']=ln?String(ln):'';ctx['dərs_adı']=ln?lessonTitle(ln):'';}
   if(item&&item.origDate&&item.origDate!==item.classDate){const od=item.origDate;ctx['köhnə_tarix']=fmtAz(od)+' ('+AZ_DAYS[isoDow(od)]+')';}
   if(item&&item.src==='extra'){const st=P().students[item.sid];const se=st&&(st.sessions||[]).find(x=>x.id===item.refId);ctx['ad']=st?st.name:'';ctx['mövzu']=se&&se.topic||'';const s=st?studentStats(st):null;const h=s&&s.held.find(x=>x.id===item.refId);ctx['say']=h?String(h.n):s?String(s.held.length+1):'';}
   if(giftId){const g=P().gifts[giftId];if(g){ctx['tapşırıq']=g.idea;ctx['mükafat']=g.reward||'';if(g.deadline)ctx['son_tarix']=fmtAz(g.deadline)+' ('+AZ_DAYS[isoDow(g.deadline)]+')';}}
